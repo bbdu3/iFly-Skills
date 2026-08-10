@@ -630,6 +630,7 @@ def main():
             pitch        = args.pitch,
             encoding     = args.encoding,
             sample_rate  = args.sample_rate,
+            role         = args.role,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
 
