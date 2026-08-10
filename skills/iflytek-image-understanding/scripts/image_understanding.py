@@ -44,6 +44,19 @@ from urllib.parse import urlencode, urlparse
 from wsgiref.handlers import format_date_time
 
 WS_URL = "wss://spark-api.cn-huabei-1.xf-yun.com/v2.1/image"
+WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+MAX_HEADER_SIZE = 64 * 1024
+MAX_MESSAGE_SIZE = 16 * 1024 * 1024
+
+
+class ImageUnderstandingError(RuntimeError):
+    """Error returned by the image understanding API."""
+
+    def __init__(self, code, message, sid=None):
+        self.code = code
+        self.sid = sid
+        suffix = f" (sid={sid})" if sid else ""
+        super().__init__(f"API error {code}: {message}{suffix}")
 
 
 def build_auth_url(ws_url: str, api_key: str, api_secret: str) -> str:
@@ -78,12 +91,10 @@ def build_auth_url(ws_url: str, api_key: str, api_secret: str) -> str:
 def read_image_base64(image_path: str) -> str:
     """Read image file and return base64 string."""
     if not os.path.exists(image_path):
-        print(f"Error: File not found: {image_path}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"File not found: {image_path}")
     size = os.path.getsize(image_path)
     if size > 4 * 1024 * 1024:
-        print(f"Error: Image too large ({size} bytes). Max 4MB.", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Image too large ({size} bytes). Max 4MB.")
     with open(image_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
 
@@ -112,6 +123,28 @@ def gen_params(app_id: str, messages: list, domain: str,
     }
 
 
+def temperature_value(value: str) -> float:
+    """Parse a temperature in the API-supported range (0, 1]."""
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("temperature must be a number") from exc
+    if not 0 < parsed <= 1:
+        raise argparse.ArgumentTypeError("temperature must be in (0, 1]")
+    return parsed
+
+
+def max_tokens_value(value: str) -> int:
+    """Parse max_tokens in the API-supported range [1, 8192]."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("max-tokens must be an integer") from exc
+    if not 1 <= parsed <= 8192:
+        raise argparse.ArgumentTypeError("max-tokens must be between 1 and 8192")
+    return parsed
+
+
 # ── Minimal WebSocket client (stdlib only) ──────────────────────────────
 
 def _ws_handshake(sock, host, path_with_query):
@@ -137,22 +170,48 @@ def _ws_handshake(sock, host, path_with_query):
         if not chunk:
             raise ConnectionError("WebSocket handshake failed: connection closed")
         buf += chunk
+        if len(buf) > MAX_HEADER_SIZE:
+            raise ConnectionError("WebSocket handshake headers are too large")
 
     header_part = buf.split(b"\r\n\r\n")[0].decode("utf-8", errors="replace")
-    status_line = header_part.split("\r\n")[0]
-    if "101" not in status_line:
+    header_lines = header_part.split("\r\n")
+    status_line = header_lines[0]
+    status_parts = status_line.split(" ", 2)
+    if len(status_parts) < 2 or status_parts[1] != "101":
         raise ConnectionError(f"WebSocket handshake failed: {status_line}")
+
+    response_headers = {}
+    for line in header_lines[1:]:
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        response_headers[name.strip().lower()] = value.strip()
+
+    if response_headers.get("upgrade", "").lower() != "websocket":
+        raise ConnectionError("WebSocket handshake failed: invalid Upgrade header")
+    connection_tokens = {
+        item.strip().lower()
+        for item in response_headers.get("connection", "").split(",")
+    }
+    if "upgrade" not in connection_tokens:
+        raise ConnectionError("WebSocket handshake failed: invalid Connection header")
+    expected_accept = base64.b64encode(
+        hashlib.sha1((key + WS_GUID).encode("ascii")).digest()
+    ).decode("ascii")
+    if not hmac.compare_digest(
+        response_headers.get("sec-websocket-accept", ""), expected_accept
+    ):
+        raise ConnectionError("WebSocket handshake failed: invalid Sec-WebSocket-Accept")
 
     # Return any leftover data after headers
     return buf.split(b"\r\n\r\n", 1)[1]
 
 
-def _ws_send(sock, data: str):
-    """Send a text frame over WebSocket (client must mask)."""
+def _ws_send_frame(sock, opcode: int, payload: bytes = b""):
+    """Send one final, masked WebSocket frame."""
     import secrets
-    payload = data.encode("utf-8")
     frame = bytearray()
-    frame.append(0x81)  # FIN + text opcode
+    frame.append(0x80 | opcode)
 
     length = len(payload)
     if length < 126:
@@ -171,8 +230,18 @@ def _ws_send(sock, data: str):
     sock.sendall(bytes(frame))
 
 
+def _ws_send(sock, data: str):
+    """Send a text frame over WebSocket."""
+    _ws_send_frame(sock, 0x1, data.encode("utf-8"))
+
+
+def _ws_send_pong(sock, payload: bytes):
+    """Reply to a WebSocket ping with the same payload."""
+    _ws_send_frame(sock, 0xA, payload)
+
+
 def _ws_recv_frame(sock, leftover: bytearray) -> tuple:
-    """Receive one WebSocket frame. Returns (opcode, payload, leftover)."""
+    """Receive one WebSocket frame. Returns (fin, opcode, payload, leftover)."""
 
     def _read_exact(n):
         nonlocal leftover
@@ -186,6 +255,7 @@ def _ws_recv_frame(sock, leftover: bytearray) -> tuple:
         return data
 
     hdr = _read_exact(2)
+    fin = bool(hdr[0] & 0x80)
     opcode = hdr[0] & 0x0F
     masked = bool(hdr[1] & 0x80)
     length = hdr[1] & 0x7F
@@ -194,29 +264,22 @@ def _ws_recv_frame(sock, leftover: bytearray) -> tuple:
         length = struct.unpack(">H", _read_exact(2))[0]
     elif length == 127:
         length = struct.unpack(">Q", _read_exact(8))[0]
-
+    if length > MAX_MESSAGE_SIZE:
+        raise ConnectionError("WebSocket frame is too large")
+    if opcode >= 0x8 and (not fin or length > 125):
+        raise ConnectionError("Invalid WebSocket control frame")
     if masked:
-        mask = _read_exact(4)
-        raw = _read_exact(length)
-        payload = bytes(b ^ mask[i % 4] for i, b in enumerate(raw))
-    else:
-        payload = _read_exact(length)
+        raise ConnectionError("Server WebSocket frames must not be masked")
 
-    return opcode, payload, leftover
+    payload = _read_exact(length)
+
+    return fin, opcode, payload, leftover
 
 
 def _ws_close(sock):
     """Send WebSocket close frame."""
     try:
-        import secrets
-        frame = bytearray([0x88, 0x82])  # FIN + close, masked, 2 bytes payload
-        mask = secrets.token_bytes(4)
-        frame.extend(mask)
-        # Close code 1000 (normal)
-        close_payload = struct.pack(">H", 1000)
-        masked = bytearray(b ^ mask[i % 4] for i, b in enumerate(close_payload))
-        frame.extend(masked)
-        sock.sendall(bytes(frame))
+        _ws_send_frame(sock, 0x8, struct.pack(">H", 1000))
     except Exception:
         pass
 
@@ -245,27 +308,56 @@ def ws_communicate(url: str, message: str) -> list:
         _ws_send(sock, message)
 
         frames = []
+        fragmented = None
         while True:
-            opcode, payload, leftover = _ws_recv_frame(sock, leftover)
+            fin, opcode, payload, leftover = _ws_recv_frame(sock, leftover)
 
             if opcode == 0x1:  # text frame
-                frames.append(payload.decode("utf-8"))
+                if fragmented is not None:
+                    raise ConnectionError("Received a new text frame during fragmentation")
+                if fin:
+                    message_payload = payload
+                else:
+                    fragmented = bytearray(payload)
+                    continue
+            elif opcode == 0x0:  # continuation frame
+                if fragmented is None:
+                    raise ConnectionError("Received continuation frame without a start frame")
+                fragmented.extend(payload)
+                if len(fragmented) > MAX_MESSAGE_SIZE:
+                    raise ConnectionError("WebSocket message is too large")
+                if not fin:
+                    continue
+                message_payload = bytes(fragmented)
+                fragmented = None
             elif opcode == 0x8:  # close
+                if fragmented is not None:
+                    raise ConnectionError("Connection closed during a fragmented message")
                 break
             elif opcode == 0x9:  # ping → pong
-                _ws_send(sock, "")  # simplified pong
+                _ws_send_pong(sock, payload)
                 continue
+            elif opcode == 0xA:  # pong
+                continue
+            else:
+                raise ConnectionError(f"Unsupported WebSocket opcode: {opcode}")
+
+            try:
+                text_message = message_payload.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ConnectionError("WebSocket text message is not valid UTF-8") from exc
+            frames.append(text_message)
 
             # Check if this is the last frame from the API
             try:
-                data = json.loads(payload.decode("utf-8"))
+                data = json.loads(text_message)
                 header = data.get("header", {})
                 if header.get("code", 0) != 0:
                     break
                 choices = data.get("payload", {}).get("choices", {})
                 if choices.get("status") == 2:
                     break
-            except (json.JSONDecodeError, UnicodeDecodeError):
+            except json.JSONDecodeError:
                 pass
 
         _ws_close(sock)
@@ -284,32 +376,27 @@ def run_understanding(app_id: str, api_key: str, api_secret: str,
 
     frames = ws_communicate(auth_url, request_data)
 
-    if raw:
-        for f in frames:
-            print(f)
-        return ""
-
     full_text = ""
     for f in frames:
+        if raw:
+            print(f)
         try:
             data = json.loads(f)
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as exc:
+            raise ConnectionError("API returned an invalid JSON message") from exc
 
         header = data.get("header", {})
         code = header.get("code", 0)
         if code != 0:
             msg = header.get("message", "unknown error")
-            print(f"Error (code {code}): {msg}", file=sys.stderr)
-            if raw:
-                print(json.dumps(data, ensure_ascii=False, indent=2))
-            sys.exit(1)
+            raise ImageUnderstandingError(code, msg, header.get("sid"))
 
         choices = data.get("payload", {}).get("choices", {})
         texts = choices.get("text", [])
-        for t in texts:
-            content = t.get("content", "")
-            full_text += content
+        if not raw:
+            for t in texts:
+                content = t.get("content", "")
+                full_text += content
 
         # Print usage info on last frame
         if choices.get("status") == 2:
@@ -340,11 +427,11 @@ def main():
         help="Model version: general (basic, fixed 273 tokens/image) or imagev3 (advanced, dynamic tokens). Default: imagev3"
     )
     parser.add_argument(
-        "--temperature", "-t", type=float, default=0.5,
+        "--temperature", "-t", type=temperature_value, default=0.5,
         help="Sampling temperature (0, 1]. Default: 0.5"
     )
     parser.add_argument(
-        "--max-tokens", type=int, default=2048,
+        "--max-tokens", type=max_tokens_value, default=2048,
         help="Max response tokens (1-8192). Default: 2048"
     )
     parser.add_argument(
@@ -352,6 +439,12 @@ def main():
         help="Output raw WebSocket JSON frames"
     )
     args = parser.parse_args()
+
+    # Validate the local input before requiring credentials or opening a socket.
+    try:
+        image_b64 = read_image_base64(args.image)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     # Read credentials
     app_id = os.environ.get("IFLY_APP_ID")
@@ -368,27 +461,31 @@ def main():
             missing.append("IFLY_API_SECRET")
         print(f"Error: Missing environment variables: {', '.join(missing)}", file=sys.stderr)
         print("Get credentials from https://console.xfyun.cn", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     # Build messages: image first, then question
-    image_b64 = read_image_base64(args.image)
     messages = [
         {"role": "user", "content": image_b64, "content_type": "image"},
         {"role": "user", "content": args.question, "content_type": "text"},
     ]
 
-    result = run_understanding(
-        app_id, api_key, api_secret,
-        messages=messages,
-        domain=args.domain,
-        temperature=args.temperature,
-        max_tokens=args.max_tokens,
-        raw=args.raw,
-    )
+    try:
+        result = run_understanding(
+            app_id, api_key, api_secret,
+            messages=messages,
+            domain=args.domain,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            raw=args.raw,
+        )
+    except (ImageUnderstandingError, ConnectionError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     if result:
         print(result)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
