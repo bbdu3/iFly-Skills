@@ -350,7 +350,7 @@ class XfeiSpeedTranscription:
         if result.get('code') != 0:
              self._raise_business_error(result, "Create task")
 
-        return result['data']['task_id'] 
+        return result['data']['task_id']
 
     def query_task(self, task_id: str) -> dict:
         """Query task status and results."""
@@ -378,7 +378,7 @@ class XfeiSpeedTranscription:
              self._raise_business_error(result, "Transcription task")
 
         return result
-    
+
     @staticmethod
     def _raise_business_error(result: dict, operation: str):
         """Raise a consistently formatted API business error."""
@@ -653,7 +653,7 @@ def main():
         else:
             # Show transcription
             write_or_print_result(result, args.output_format, args.output)
-           
+
     except (ApiTransportError, ApiBusinessError, OSError, KeyError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

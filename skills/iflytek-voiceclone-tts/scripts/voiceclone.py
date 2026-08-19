@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """iFlytek Voice Clone (声音复刻) — train a custom voice and synthesize speech.
 
 Two workflows:
@@ -411,7 +411,7 @@ class TrainClient:
             result = json.loads(resp.read().decode("utf-8"))
         self._raise_for_api_error(result, "/task/submitWithAudio")
         return result
-    
+
     def submit_task(self, task_id: int) -> dict:
         """Submit a training task for processing."""
         return self._post("/task/submit", {"taskId": task_id})
@@ -579,7 +579,7 @@ class VoiceCloneSynthesizer:
             except Exception:
                 pass
             raise TimeoutError("TTS WebSocket timed out after 120 seconds")
-                
+
         if self.error:
             raise RuntimeError(self.error)
 
