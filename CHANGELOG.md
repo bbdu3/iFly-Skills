@@ -28,3 +28,16 @@ This entry describes the scaffold and credential/catalog preparation delivered b
 ### Scope
 
 - The bridge currently enables only the local `iflytek-hyper-tts/listVoices` operation. Business nodes and remote Skill API adapters are outside this change.
+
+## Four-node MVP execution support
+
+### Added
+
+- Registered four n8n node classes for translation, text proofreading, invoice OCR, and Hyper TTS.
+- Added shared node helpers for per-item execution, text and binary input mapping, runtime configuration validation, and `continueOnFail` handling.
+- Added bridge adapters for translation, proofreading, invoice recognition, Hyper TTS synthesis, and local voice listing, including MP3 artifact metadata.
+- Added node metadata, adapter, and package tests, plus clean build output handling.
+
+### Scope
+
+- The four nodes use the shared `iflyApi` credential definition. Other Skills remain unregistered and are outside this change.
