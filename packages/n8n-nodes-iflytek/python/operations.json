@@ -2,6 +2,30 @@
   "protocolVersion": 1,
   "operations": [
     {
+      "skill": "iflytek-translate",
+      "operation": "translate",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-text-proofread",
+      "operation": "check",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-ocr-invoice",
+      "operation": "recognize",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-hyper-tts",
+      "operation": "synthesize",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": ["audio/mpeg"]
+    },
+    {
       "skill": "iflytek-hyper-tts",
       "operation": "listVoices",
       "credentials": [],

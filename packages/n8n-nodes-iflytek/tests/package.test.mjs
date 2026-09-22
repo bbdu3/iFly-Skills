@@ -29,7 +29,12 @@ test('registered compiled credential loads without runtime JS dependencies', asy
   assert.equal(pkg.name, 'n8n-nodes-iflytek');
   assert.equal(pkg.private, true);
   assert.ok(pkg.keywords.includes('n8n-community-node-package'));
-  assert.deepEqual(pkg.n8n.nodes, []);
+  assert.deepEqual(pkg.n8n.nodes, [
+    'dist/nodes/IflyTranslate/IflyTranslate.node.js',
+    'dist/nodes/IflyTextProofread/IflyTextProofread.node.js',
+    'dist/nodes/IflyOcrInvoice/IflyOcrInvoice.node.js',
+    'dist/nodes/IflyHyperTts/IflyHyperTts.node.js',
+  ]);
   assert.equal(pkg.n8n.credentials.length, 1);
   const { IflyApi } = createRequire(import.meta.url)(path.join(packageRoot, pkg.n8n.credentials[0]));
   const credential = new IflyApi();

@@ -20,13 +20,14 @@
   },
   "files": [
     "dist/credentials",
+    "dist/nodes",
     "dist/shared",
     "runtime",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/stage-runtime.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json && node scripts/stage-runtime.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test tests/*.test.mjs",
     "check": "npm run build && npm test",
@@ -37,7 +38,12 @@
     "credentials": [
       "dist/credentials/IflyApi.credentials.js"
     ],
-    "nodes": []
+    "nodes": [
+      "dist/nodes/IflyTranslate/IflyTranslate.node.js",
+      "dist/nodes/IflyTextProofread/IflyTextProofread.node.js",
+      "dist/nodes/IflyOcrInvoice/IflyOcrInvoice.node.js",
+      "dist/nodes/IflyHyperTts/IflyHyperTts.node.js"
+    ]
   },
   "peerDependencies": {
     "n8n-workflow": ">=2.39.3 <3"
