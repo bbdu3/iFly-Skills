@@ -8,12 +8,16 @@ const nodes = [
   require('../dist/nodes/IflyTextProofread/IflyTextProofread.node.js').IflyTextProofread,
   require('../dist/nodes/IflyOcrInvoice/IflyOcrInvoice.node.js').IflyOcrInvoice,
   require('../dist/nodes/IflyHyperTts/IflyHyperTts.node.js').IflyHyperTts,
+  require('../dist/nodes/IflyPdfImageOcr/IflyPdfImageOcr.node.js').IflyPdfImageOcr,
+  require('../dist/nodes/IflySpeedTranscription/IflySpeedTranscription.node.js').IflySpeedTranscription,
+  require('../dist/nodes/IflyImageUnderstanding/IflyImageUnderstanding.node.js').IflyImageUnderstanding,
 ];
 
-test('four MVP node classes expose stable n8n metadata', () => {
+test('seven enabled node classes expose stable n8n metadata', () => {
   const instances = nodes.map((Node) => new Node());
   assert.deepEqual(instances.map(({ description }) => description.name), [
     'iflyTranslate', 'iflyTextProofread', 'iflyOcrInvoice', 'iflyHyperTts',
+    'iflyPdfImageOcr', 'iflySpeedTranscription', 'iflyImageUnderstanding',
   ]);
   for (const { description } of instances) {
     assert.deepEqual(description.inputs, ['main']);
@@ -28,4 +32,12 @@ test('four MVP node classes expose stable n8n metadata', () => {
   assert.deepEqual(instances[3].description.properties.find(({ name }) => name === 'operation').options.map(({ value }) => value), [
     'synthesize', 'listVoices',
   ]);
+  assert.deepEqual(instances[4].description.properties.find(({ name }) => name === 'operation').options.map(({ value }) => value), [
+    'recognizeImage', 'createPdfTask', 'getPdfTask', 'getResult',
+  ]);
+  assert.deepEqual(instances[5].description.properties.find(({ name }) => name === 'operation').options.map(({ value }) => value), [
+    'createTask', 'getTask', 'getResult',
+  ]);
+  assert.equal(instances[6].description.properties.find(({ name }) => name === 'operation'), undefined);
+  assert.equal(instances[6].description.credentials[0].name, 'iflyApi');
 });

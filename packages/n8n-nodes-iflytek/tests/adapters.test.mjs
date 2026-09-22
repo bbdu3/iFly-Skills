@@ -42,6 +42,48 @@ class XfeiHyperTTSClient:
         with open(output_path, 'wb') as stream: stream.write(b'fake-mp3')
         return {'success': True, 'text_length': len(text)}
 `,
+  'iflytek-pdf-image-ocr/scripts/image_ocr.py': `class IflyImageOCRClient:
+    def __init__(self, app_id, api_key, api_secret):
+        assert (app_id, api_key, api_secret) == ('app', 'key', 'secret')
+    def ocr(self, path, result_format):
+        assert path.endswith('.png')
+        return {'text': 'image text', 'format': result_format}
+`,
+  'iflytek-pdf-image-ocr/scripts/pdf_ocr.py': `class IflyPdfOCRClient:
+    def __init__(self, app_id, api_secret):
+        assert (app_id, api_secret) == ('pdf-app', 'pdf-secret')
+    def start_task(self, pdf_path=None, pdf_url=None, export_format='word'):
+        assert pdf_path and pdf_path.endswith('.pdf')
+        return {'flag': True, 'data': {'taskNo': 'pdf-task-1', 'status': 'WAITING', 'format': export_format}}
+    def query_status(self, task_no):
+        assert task_no == 'pdf-task-1'
+        return {'flag': True, 'data': {'taskNo': task_no, 'status': 'FINISH', 'downloadUrl': 'https://example.invalid/result'}}
+`,
+  'iflytek-speed-transcription/scripts/transcribe.py': `class XfeiSpeedTranscription:
+    def __init__(self, app_id, api_key, api_secret):
+        assert (app_id, api_key, api_secret) == ('app', 'key', 'secret')
+    def upload_small_file(self, path):
+        assert str(path).endswith('.mp3')
+        return 'https://example.invalid/audio.mp3'
+    def upload_large_file(self, path):
+        return self.upload_small_file(path)
+    def create_task(self, audio_url, file_path=None, **kwargs):
+        assert audio_url.endswith('.mp3')
+        return 'audio-task-1'
+    def query_task(self, task_id):
+        assert task_id == 'audio-task-1'
+        return {'code': 0, 'data': {'task_id': task_id, 'task_status': '3', 'result': {'lattice': []}}}
+    def _parse_result(self, raw):
+        return {'task_id': raw['data']['task_id'], 'task_status': raw['data']['task_status'], 'text': 'hello audio', 'segments': [], 'raw': raw}
+`,
+  'iflytek-image-understanding/scripts/image_understanding.py': `def read_image_base64(path):
+    assert path.endswith('.jpg')
+    return 'base64-image'
+def run_understanding(app_id, api_key, api_secret, messages, domain, temperature, max_tokens, raw):
+    assert (app_id, api_key, api_secret) == ('app', 'key', 'secret')
+    assert messages[0]['content'] == 'base64-image'
+    return 'a generated description'
+`,
 };
 
 async function fixture(t) {
@@ -91,5 +133,47 @@ test('packaged bridge adapters map text, binary, invoice, TTS, and local voices'
 
   const voices = await runner.run({ skill: 'iflytek-hyper-tts', operation: 'listVoices' }, consume);
   assert.equal(voices.result.data.defaultVoice, 'voice');
+
+  const imageOcr = await runner.run({
+    skill: 'iflytek-pdf-image-ocr', operation: 'recognizeImage',
+    files: { image: { data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x69, 0x6d, 0x61, 0x67, 0x65]) } },
+    parameters: { resultFormat: 'json' }, credentials,
+  }, consume);
+  assert.equal(imageOcr.result.data.result.text, 'image text');
+
+  const pdf = await runner.run({
+    skill: 'iflytek-pdf-image-ocr', operation: 'createPdfTask',
+    files: { pdf: { data: Buffer.from('%PDF-1.7 fake') } },
+    parameters: { exportFormat: 'markdown' }, credentials: { appId: 'pdf-app', apiSecret: 'pdf-secret' },
+  }, consume);
+  assert.equal(pdf.result.data.taskNo, 'pdf-task-1');
+  const pdfResult = await runner.run({
+    skill: 'iflytek-pdf-image-ocr', operation: 'getResult',
+    parameters: { taskNo: 'pdf-task-1' }, credentials: { appId: 'pdf-app', apiSecret: 'pdf-secret' },
+  }, consume);
+  assert.equal(pdfResult.result.data.completed, true);
+
+  const transcription = await runner.run({
+    skill: 'iflytek-speed-transcription', operation: 'createTask',
+    files: { audio: { data: Buffer.from('fake audio') } }, parameters: { language: 'zh_cn' }, credentials,
+  }, consume);
+  assert.equal(transcription.result.data.taskId, 'audio-task-1');
+  const transcriptionTask = await runner.run({
+    skill: 'iflytek-speed-transcription', operation: 'getTask',
+    parameters: { taskId: 'audio-task-1' }, credentials,
+  }, consume);
+  assert.equal(transcriptionTask.result.data.status, '3');
+  const transcriptionResult = await runner.run({
+    skill: 'iflytek-speed-transcription', operation: 'getResult',
+    parameters: { taskId: 'audio-task-1' }, credentials,
+  }, consume);
+  assert.equal(transcriptionResult.result.data.text, 'hello audio');
+
+  const understanding = await runner.run({
+    skill: 'iflytek-image-understanding', operation: 'analyze',
+    files: { image: { data: Buffer.from([0xff, 0xd8, 0xff, 0x69, 0x6d, 0x61, 0x67, 0x65]) } },
+    parameters: { question: 'What is shown?', domain: 'general', temperature: 0.4, maxTokens: 128 }, credentials,
+  }, consume);
+  assert.equal(understanding.result.data.text, 'a generated description');
   assert.deepEqual(await readdir(temporaryRoot), []);
 });

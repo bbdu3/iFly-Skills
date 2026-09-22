@@ -34,6 +34,9 @@ test('registered compiled credential loads without runtime JS dependencies', asy
     'dist/nodes/IflyTextProofread/IflyTextProofread.node.js',
     'dist/nodes/IflyOcrInvoice/IflyOcrInvoice.node.js',
     'dist/nodes/IflyHyperTts/IflyHyperTts.node.js',
+    'dist/nodes/IflyPdfImageOcr/IflyPdfImageOcr.node.js',
+    'dist/nodes/IflySpeedTranscription/IflySpeedTranscription.node.js',
+    'dist/nodes/IflyImageUnderstanding/IflyImageUnderstanding.node.js',
   ]);
   assert.equal(pkg.n8n.credentials.length, 1);
   const { IflyApi } = createRequire(import.meta.url)(path.join(packageRoot, pkg.n8n.credentials[0]));

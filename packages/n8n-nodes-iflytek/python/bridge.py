@@ -195,6 +195,236 @@ def _invoice_input_path(relative):
     return str(target)
 
 
+def _copy_input_with_suffix(relative, suffix, prefix):
+    """Copy a runner input into the extension expected by a legacy Skill."""
+    source = Path(_file_path(relative))
+    target = source.parent / (prefix + suffix)
+    try:
+        shutil.copyfile(source, target)
+    except OSError:
+        raise BridgeError('INVALID_INPUT')
+    return str(target)
+
+
+def _image_input_path(relative, prefix='image-input'):
+    source = Path(_file_path(relative))
+    try:
+        header = source.read_bytes()[:16]
+    except OSError:
+        raise BridgeError('INVALID_INPUT')
+    if header.startswith(b'\x89PNG\r\n\x1a\n'):
+        suffix = '.png'
+    elif header.startswith(b'\xff\xd8\xff'):
+        suffix = '.jpg'
+    elif header.startswith((b'GIF87a', b'GIF89a')):
+        suffix = '.gif'
+    elif header.startswith(b'BM'):
+        suffix = '.bmp'
+    elif header[:4] in (b'II*\x00', b'MM\x00*'):
+        suffix = '.tif'
+    else:
+        raise BridgeError('INVALID_INPUT')
+    return _copy_input_with_suffix(relative, suffix, prefix)
+
+
+def _pdf_input_path(relative):
+    source = Path(_file_path(relative))
+    try:
+        if not source.read_bytes()[:5].startswith(b'%PDF-'):
+            raise BridgeError('INVALID_INPUT')
+    except BridgeError:
+        raise
+    except OSError:
+        raise BridgeError('INVALID_INPUT')
+    return _copy_input_with_suffix(relative, '.pdf', 'pdf-input')
+
+
+def _task_no(request, name):
+    value = _parameters(request).get(name)
+    if not isinstance(value, str) or not value.strip() or len(value) > 256:
+        raise BridgeError('INVALID_INPUT')
+    return value.strip()
+
+
+def recognize_image(request):
+    skill = load_packaged_module('skills/iflytek-pdf-image-ocr/scripts/image_ocr.py')
+    files = request['input'].get('files')
+    if not isinstance(files, dict) or 'image' not in files:
+        raise BridgeError('INVALID_INPUT')
+    parameters = _parameters(request)
+    result_format = parameters.get('resultFormat', 'json,markdown')
+    if result_format not in ('json', 'markdown', 'json,markdown'):
+        raise BridgeError('INVALID_INPUT')
+    path = _image_input_path(files['image'])
+    try:
+        result = skill.IflyImageOCRClient(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
+        ).ocr(path, result_format)
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'result': result}, []
+
+
+def create_pdf_task(request):
+    skill = load_packaged_module('skills/iflytek-pdf-image-ocr/scripts/pdf_ocr.py')
+    parameters = _parameters(request)
+    export_format = parameters.get('exportFormat', 'word')
+    pdf_url = parameters.get('pdfUrl', '')
+    files = request['input'].get('files')
+    if export_format not in ('word', 'markdown', 'json') or not isinstance(pdf_url, str):
+        raise BridgeError('INVALID_INPUT')
+    if pdf_url and (len(pdf_url) > 2048 or not pdf_url.startswith(('http://', 'https://'))):
+        raise BridgeError('INVALID_INPUT')
+    pdf_path = None
+    if isinstance(files, dict) and files.get('pdf'):
+        pdf_path = _pdf_input_path(files['pdf'])
+    if not pdf_path and not pdf_url:
+        raise BridgeError('INVALID_INPUT')
+    try:
+        result = skill.IflyPdfOCRClient(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_SECRET']
+        ).start_task(pdf_path=pdf_path, pdf_url=pdf_url or None, export_format=export_format)
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    data = result.get('data', {}) if isinstance(result, dict) else {}
+    return {'result': result, 'taskNo': data.get('taskNo'), 'status': data.get('status')}, []
+
+
+def query_pdf_task(request):
+    skill = load_packaged_module('skills/iflytek-pdf-image-ocr/scripts/pdf_ocr.py')
+    task_no = _task_no(request, 'taskNo')
+    try:
+        result = skill.IflyPdfOCRClient(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_SECRET']
+        ).query_status(task_no)
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    data = result.get('data', {}) if isinstance(result, dict) else {}
+    status = data.get('status')
+    return {
+        'result': result, 'taskNo': task_no, 'status': status,
+        'completed': status in ('FINISH', 'ANY_FAILED'),
+    }, []
+
+
+def _audio_input_path(relative):
+    return _copy_input_with_suffix(relative, '.mp3', 'audio-input')
+
+
+def _transcription_parameters(parameters):
+    allowed = {'language', 'accent', 'domain', 'callbackUrl', 'vsppOn', 'speakerNum',
+               'outputType', 'postprocOn', 'pd', 'enableSubtitle', 'smoothproc',
+               'colloqproc', 'languageType', 'vto', 'dhw'}
+    if set(parameters) - allowed:
+        raise BridgeError('INVALID_INPUT')
+    mapping = {
+        'callbackUrl': 'callback_url', 'vsppOn': 'vspp_on', 'speakerNum': 'speaker_num',
+        'outputType': 'output_type', 'postprocOn': 'postproc_on',
+        'enableSubtitle': 'enable_subtitle', 'languageType': 'language_type',
+        'smoothproc': 'smoothproc', 'colloqproc': 'colloqproc',
+    }
+    values = {}
+    for key, value in parameters.items():
+        target = mapping.get(key, key)
+        if target in ('language', 'accent', 'domain', 'callback_url', 'pd', 'dhw'):
+            if not isinstance(value, str) or len(value) > 256:
+                raise BridgeError('INVALID_INPUT')
+        elif target in ('vspp_on', 'speaker_num', 'output_type', 'postproc_on', 'enable_subtitle', 'language_type', 'vto'):
+            if type(value) is not int:
+                raise BridgeError('INVALID_INPUT')
+        elif target in ('smoothproc', 'colloqproc') and type(value) is not bool:
+            raise BridgeError('INVALID_INPUT')
+        values[target] = value
+    return values
+
+
+def create_transcription_task(request):
+    skill = load_packaged_module('skills/iflytek-speed-transcription/scripts/transcribe.py')
+    files = request['input'].get('files')
+    if not isinstance(files, dict) or 'audio' not in files:
+        raise BridgeError('INVALID_INPUT')
+    path = _audio_input_path(files['audio'])
+    parameters = _transcription_parameters(_parameters(request))
+    try:
+        client = skill.XfeiSpeedTranscription(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
+        )
+        if Path(path).stat().st_size < 31457280:
+            audio_url = client.upload_small_file(Path(path))
+        else:
+            audio_url = client.upload_large_file(Path(path))
+        task_id = client.create_task(audio_url, file_path=Path(path), **parameters)
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'taskId': task_id, 'audioUrl': audio_url}, []
+
+
+def query_transcription_task(request, parse=False):
+    skill = load_packaged_module('skills/iflytek-speed-transcription/scripts/transcribe.py')
+    task_id = _task_no(request, 'taskId')
+    try:
+        client = skill.XfeiSpeedTranscription(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
+        )
+        raw = client.query_task(task_id)
+        if parse:
+            return client._parse_result(raw), []
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    data = raw.get('data', {}) if isinstance(raw, dict) else {}
+    return {'taskId': task_id, 'status': data.get('task_status'), 'result': raw}, []
+
+
+def get_transcription_task(request):
+    return query_transcription_task(request, parse=False)
+
+
+def get_transcription_result(request):
+    return query_transcription_task(request, parse=True)
+
+
+def analyze_image(request):
+    skill = load_packaged_module('skills/iflytek-image-understanding/scripts/image_understanding.py')
+    files = request['input'].get('files')
+    if not isinstance(files, dict) or 'image' not in files:
+        raise BridgeError('INVALID_INPUT')
+    parameters = _parameters(request)
+    question = parameters.get('question', 'Please describe this image in detail.')
+    domain = parameters.get('domain', 'imagev3')
+    temperature = parameters.get('temperature', 0.5)
+    max_tokens = parameters.get('maxTokens', 2048)
+    if (not isinstance(question, str) or not question.strip() or len(question.encode('utf-8')) > 1024 * 1024
+            or domain not in ('general', 'imagev3') or type(temperature) not in (int, float)
+            or not 0 < temperature <= 1 or type(max_tokens) is not int or not 1 <= max_tokens <= 8192):
+        raise BridgeError('INVALID_INPUT')
+    path = _image_input_path(files['image'], 'understanding-input')
+    try:
+        image = skill.read_image_base64(path)
+        messages = [
+            {'role': 'user', 'content': image, 'content_type': 'image'},
+            {'role': 'user', 'content': question, 'content_type': 'text'},
+        ]
+        result = skill.run_understanding(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET'],
+            messages, domain, float(temperature), max_tokens, False,
+        )
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'text': result}, []
+
+
 def synthesize(request):
     skill = load_packaged_module('skills/iflytek-hyper-tts/scripts/xfei_hyper_tts.py')
     text = _text(request)
@@ -229,6 +459,14 @@ OPERATIONS = {
     ('iflytek-ocr-invoice', 'recognize'): recognize_invoice,
     ('iflytek-hyper-tts', 'synthesize'): synthesize,
     ('iflytek-hyper-tts', 'listVoices'): list_voices,
+    ('iflytek-pdf-image-ocr', 'recognizeImage'): recognize_image,
+    ('iflytek-pdf-image-ocr', 'createPdfTask'): create_pdf_task,
+    ('iflytek-pdf-image-ocr', 'getPdfTask'): query_pdf_task,
+    ('iflytek-pdf-image-ocr', 'getResult'): query_pdf_task,
+    ('iflytek-speed-transcription', 'createTask'): create_transcription_task,
+    ('iflytek-speed-transcription', 'getTask'): get_transcription_task,
+    ('iflytek-speed-transcription', 'getResult'): get_transcription_result,
+    ('iflytek-image-understanding', 'analyze'): analyze_image,
 }
 
 

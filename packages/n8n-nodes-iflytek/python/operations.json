@@ -30,6 +30,54 @@
       "operation": "listVoices",
       "credentials": [],
       "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-pdf-image-ocr",
+      "operation": "recognizeImage",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-pdf-image-ocr",
+      "operation": "createPdfTask",
+      "credentials": ["appId", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-pdf-image-ocr",
+      "operation": "getPdfTask",
+      "credentials": ["appId", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-pdf-image-ocr",
+      "operation": "getResult",
+      "credentials": ["appId", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-speed-transcription",
+      "operation": "createTask",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-speed-transcription",
+      "operation": "getTask",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-speed-transcription",
+      "operation": "getResult",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-image-understanding",
+      "operation": "analyze",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": []
     }
   ]
 }
