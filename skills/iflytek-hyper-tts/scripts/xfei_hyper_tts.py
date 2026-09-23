@@ -303,6 +303,7 @@ class XfeiHyperTTSClient:
         print(f", 文本长度={len(text)}字符", file=sys.stderr)
 
         audio_chunks: list[bytes] = []
+        completed = False
 
         try:
             ws = websocket.create_connection(auth_url, timeout=30)
@@ -349,10 +350,14 @@ class XfeiHyperTTSClient:
                     frame_count += 1
 
                 if audio_block.get("status") == 2:
+                    completed = True
                     break
 
         finally:
             ws.close()
+
+        if not completed:
+            raise RuntimeError("Speech stream ended without a final audio frame")
 
         if not audio_chunks:
             error_response = {

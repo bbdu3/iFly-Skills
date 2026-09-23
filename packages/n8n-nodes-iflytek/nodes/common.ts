@@ -27,7 +27,11 @@ export function runner(): PythonRunner {
   if (!executable || !path.isAbsolute(executable)) throw new ExecutionError('INVALID_INPUT');
   const temporaryRoot = process.env.IFLYTEK_TMP_ROOT;
   if (temporaryRoot !== undefined && !path.isAbsolute(temporaryRoot)) throw new ExecutionError('INVALID_INPUT');
-  return new PythonRunner({ pythonExecutable: executable, temporaryRoot });
+  return new PythonRunner({
+    pythonExecutable: executable, temporaryRoot,
+    chromeExecutable: process.env.IFLYTEK_CHROME_EXECUTABLE,
+    ffmpegExecutable: process.env.IFLYTEK_FFMPEG_EXECUTABLE,
+  });
 }
 
 function parameter(context: IExecuteFunctions, name: string, index: number, fallback: unknown = ''): unknown {
@@ -68,13 +72,21 @@ export function textItem(
   if (typeof textValue === 'string' && textValue.length > 0) input.text = textValue;
   return {
     skill, operation, input, parameters,
-    binaryInputs: binary ? { text: binary } : undefined,
+    binaryInputs: binary && input.text === undefined ? { text: binary } : undefined,
   };
 }
 
 export function getString(context: IExecuteFunctions, name: string, index: number, fallback: string): string {
   const value = parameter(context, name, index, fallback);
   return typeof value === 'string' ? value : fallback;
+}
+
+export function getOperation(context: IExecuteFunctions, index: number, fallback: string, allowed: string[]): string {
+  const value = parameter(context, 'operation', index, fallback);
+  if (typeof value !== 'string' || !allowed.includes(value)) {
+    throw new NodeOperationError(context.getNode(), 'UNSUPPORTED_OPERATION: This operation is not enabled.', { itemIndex: index });
+  }
+  return value;
 }
 
 export function getNumber(context: IExecuteFunctions, name: string, index: number, fallback: number): number {

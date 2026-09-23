@@ -53,7 +53,7 @@ class XfeiHyperTTSClient:
     def __init__(self, app_id, api_secret):
         assert (app_id, api_secret) == ('pdf-app', 'pdf-secret')
     def start_task(self, pdf_path=None, pdf_url=None, export_format='word'):
-        assert pdf_path and pdf_path.endswith('.pdf')
+        assert pdf_path and pdf_path.name.endswith('.pdf')
         return {'flag': True, 'data': {'taskNo': 'pdf-task-1', 'status': 'WAITING', 'format': export_format}}
     def query_status(self, task_no):
         assert task_no == 'pdf-task-1'
@@ -102,19 +102,19 @@ def run_understanding(app_id, api_key, api_secret, messages, domain, temperature
     def __init__(self, app_id, api_key):
         assert (app_id, api_key) == ('voice-app', 'voice-key')
     def get_training_text(self, text_id):
-        return {'data': {'textId': text_id, 'textSegs': [{'segId': 1}]}}
+        return {'code': 0, 'flag': True, 'data': {'textId': text_id, 'textSegs': [{'segId': 1}]}}
     def create_task(self, **kwargs):
         assert kwargs['sex'] == 2
-        return {'data': 901}
+        return {'code': 0, 'flag': True, 'data': 901}
     def upload_audio_file(self, task_id, audio_path, text_id, seg_id):
         assert str(audio_path).endswith('.wav')
-        return {'data': {'uploaded': True, 'taskId': task_id}}
+        return {'code': 0, 'flag': True, 'data': {'uploaded': True, 'taskId': task_id}}
     def upload_audio_url(self, task_id, audio_url, text_id, seg_id):
-        return {'data': {'uploaded': True, 'url': audio_url}}
+        return {'code': 0, 'flag': True, 'data': {'uploaded': True, 'url': audio_url}}
     def submit_task(self, task_id):
-        return {'data': {'submitted': True, 'taskId': task_id}}
+        return {'code': 0, 'flag': True, 'data': {'submitted': True, 'taskId': task_id}}
     def get_task_status(self, task_id):
-        return {'data': {'trainStatus': 1, 'assetId': 'res-1'}}
+        return {'code': 0, 'flag': True, 'data': {'trainStatus': 1, 'assetId': 'res-1'}}
 class VoiceCloneSynthesizer:
     def __init__(self, app_id, api_key, api_secret, res_id, args):
         assert (app_id, api_key, api_secret, res_id, args.format) == ('voice-app', 'voice-key', 'voice-secret', 'res-1', 'mp3')
@@ -233,7 +233,7 @@ test('packaged bridge adapters map text, binary, invoice, TTS, and local voices'
   assert.equal(trainingText.result.data.result.data.textId, 5001);
   const training = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'createTraining', parameters: { name: 'demo', sex: 'female', engine: 'omni_v1', language: 'cn' }, credentials: voiceTrainingCredentials }, consume);
   assert.equal(training.result.data.result.data, 901);
-  const upload = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'uploadSample', parameters: { taskId: 901, textId: 5001, segmentId: 1, audioFormat: 'wav' }, files: { audio: { data: Buffer.from('fake wav') } }, credentials: voiceTrainingCredentials }, consume);
+  const upload = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'uploadSample', parameters: { taskId: 901, textId: 5001, segmentId: 1, audioFormat: 'wav', confirmBinarySubmission: true }, files: { audio: { data: Buffer.from('fake wav') } }, credentials: voiceTrainingCredentials }, consume);
   assert.equal(upload.result.data.result.data.uploaded, true);
   const submitted = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'submitTraining', parameters: { taskId: 901 }, credentials: voiceTrainingCredentials }, consume);
   assert.equal(submitted.result.data.result.data.submitted, true);

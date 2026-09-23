@@ -67,3 +67,28 @@ This entry describes the scaffold and credential/catalog preparation delivered b
 ### Scope
 
 - Video translation accepts public video URLs and voice cloning accepts binary or public audio inputs according to each operation; both use the shared `iflyApi` credential. Contract review and Animated Sketch Diagram remain outside the enabled node set.
+
+## Contract review and local diagram rendering
+
+### Added
+
+- Registered `IflyContractReview` and `IflyAnimatedSketch`, bringing the package to 11 nodes and 25 operations.
+- Added package-owned contract adapters using shared `IFLY_*` credentials, existing Skill processors and API clients, bounded PDF/DOCX extraction, and Markdown/JSON reports. Preserved the original contract CLI, configuration, and client interfaces.
+- Added a credential-free package-owned wrapper for restricted HTML/SVG/CSS-to-GIF rendering through the original Skill renderer, Playwright Core, administrator-installed Chromium, and ffmpeg.
+- Bundled the required workflow modules, diagram template, Kalam font and license notices, and a full Python dependency lock.
+- Added execution coverage for all 11 nodes and 25 operations, real Skill clients with offline transports, and opt-in real GIF decoding, cancellation, and n8n binary integration tests.
+
+### Fixed
+
+- Corrected contract report summary recursion and handling of unavailable confidence values; the package adapter identifies model inference and local rule checks separately.
+- Corrected the shared image OCR client's signing hostname to exclude the request path.
+- Fixed PDF binary path conversion, text/URL input precedence, operation validation, and temporary output paths in node results.
+- Clarified that binary voice sample upload also submits training, added explicit confirmation, and rejected training and proofreading business errors.
+- Corrected the transcription digest prefix and final chunk size; rejected incomplete synthesis/image streams and preserved TLS verification for voice synthesis.
+- Aligned the proofreading HTTP Host header with the signed endpoint.
+- Ensured renderer frame cleanup also runs when browser startup or shutdown fails.
+
+### Scope
+
+- Contract results require human review; live service permissions and review quality have not been validated.
+- Diagram rendering accepts existing restricted HTML and does not implement prompt-based generation. The development package remains unpublished.

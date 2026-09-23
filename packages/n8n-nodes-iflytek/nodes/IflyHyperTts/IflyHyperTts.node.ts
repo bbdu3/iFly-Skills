@@ -1,5 +1,5 @@
 ﻿import type { IExecuteFunctions, INodeType, INodeTypeDescription } from 'n8n-workflow';
-import { executeItems, getNumber, getString, textItem, textProperties } from '../common';
+import { executeItems, getNumber, getOperation, getString, textItem, textProperties } from '../common';
 
 export class IflyHyperTts implements INodeType {
   description: INodeTypeDescription = {
@@ -27,7 +27,7 @@ export class IflyHyperTts implements INodeType {
 
   async execute(this: IExecuteFunctions) {
     return executeItems(this, (index) => {
-      const operation = getString(this, 'operation', index, 'synthesize');
+      const operation = getOperation(this, index, 'synthesize', ['synthesize', 'listVoices']);
       if (operation === 'listVoices') return { skill: 'iflytek-hyper-tts', operation, input: {}, parameters: {} };
       const item = textItem(this, index, 'iflytek-hyper-tts', 'synthesize', {
         voice: getString(this, 'voice', index, 'x5_lingxiaotang_flow'),

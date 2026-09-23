@@ -13,14 +13,17 @@ const nodes = [
   require('../dist/nodes/IflyImageUnderstanding/IflyImageUnderstanding.node.js').IflyImageUnderstanding,
   require('../dist/nodes/IflyVideoTranslate/IflyVideoTranslate.node.js').IflyVideoTranslate,
   require('../dist/nodes/IflyVoicecloneTts/IflyVoicecloneTts.node.js').IflyVoicecloneTts,
+  require('../dist/nodes/IflyContractReview/IflyContractReview.node.js').IflyContractReview,
+  require('../dist/nodes/IflyAnimatedSketch/IflyAnimatedSketch.node.js').IflyAnimatedSketch,
 ];
 
-test('nine enabled node classes expose stable n8n metadata', () => {
+test('eleven enabled node classes expose stable n8n metadata', () => {
   const instances = nodes.map((Node) => new Node());
   assert.deepEqual(instances.map(({ description }) => description.name), [
     'iflyTranslate', 'iflyTextProofread', 'iflyOcrInvoice', 'iflyHyperTts',
     'iflyPdfImageOcr', 'iflySpeedTranscription', 'iflyImageUnderstanding',
     'iflyVideoTranslate', 'iflyVoicecloneTts',
+    'iflyContractReview', 'iflyAnimatedSketch',
   ]);
   for (const { description } of instances) {
     assert.deepEqual(description.inputs, ['main']);
@@ -43,6 +46,8 @@ test('nine enabled node classes expose stable n8n metadata', () => {
   ]);
   assert.equal(instances[6].description.properties.find(({ name }) => name === 'operation'), undefined);
   assert.equal(instances[6].description.credentials[0].name, 'iflyApi');
+  assert.equal(instances[9].description.credentials[0].name, 'iflyApi');
+  assert.equal(instances[10].description.credentials, undefined);
   assert.deepEqual(instances[7].description.properties.find(({ name }) => name === 'operation').options.map(({ value }) => value), [
     'createTask', 'listTasks', 'getTask', 'confirmTranscript',
   ]);

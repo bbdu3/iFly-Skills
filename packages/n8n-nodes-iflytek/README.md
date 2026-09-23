@@ -1,6 +1,6 @@
 # n8n-nodes-iflytek
 
-`n8n-nodes-iflytek` 将 iFly-Skills 仓库中的可复用能力封装为自托管 n8n 社区节点。每个已启用 Skill 对应一个节点，共享 `IflyApi` 凭证，通过 Node.js `child_process.spawn` 启动受控的 Python bridge；bridge 再加载随包分发的 Skill 脚本并返回稳定的 JSON 结果。
+`n8n-nodes-iflytek` 将 iFly-Skills 仓库中的可复用能力封装为自托管 n8n 社区节点。每个 Skill 对应一个节点，远端服务共享 `IflyApi` 凭证，本地手绘图渲染无需 API 凭证。节点通过 Node.js `child_process.spawn` 启动受控的 Python bridge；bridge 再加载随包分发的 Skill 脚本并返回稳定的 JSON 结果。
 
 当前版本为 `0.0.0-dev.0`，`package.json` 仍设置为 `private: true`，用于开发和离线验收，尚未发布 npm。包元数据包含 `n8n-community-node-package` 关键字和 n8n 节点注册路径；关键字本身不代表已经发布或通过 n8n 审核。
 
@@ -27,12 +27,14 @@
 | `IflyVideoTranslate` | `confirmTranscript` | 视频翻译 `taskId`、是否强制重跑 | `data.result` 中的确认结果 |
 | `IflyVoicecloneTts` | `getTrainingText` | 训练文本集 ID | `data.result` 中的文本片段 |
 | `IflyVoicecloneTts` | `createTraining` | 任务名称、性别、引擎和语言 | `data.result` 中的训练任务 |
-| `IflyVoicecloneTts` | `uploadSample` | 训练任务 ID、音频 binary 或 URL、文本片段 | `data.result` 中的上传结果 |
+| `IflyVoicecloneTts` | `uploadSample` | 训练任务 ID、音频 binary 或 URL、文本片段 | `data.result`、`data.trainingSubmitted`；binary 同时提交训练 |
 | `IflyVoicecloneTts` | `submitTraining` | 训练任务 ID | `data.result` 中的提交结果 |
 | `IflyVoicecloneTts` | `getTraining` | 训练任务 ID | 状态、资源 ID 和原始响应 |
 | `IflyVoicecloneTts` | `synthesize` | 文本、克隆资源 ID 和声音参数 | `binary.audio` 及合成信息 |
+| `IflyContractReview` | `review` | 合同文本或文档 binary、语言、审核模式与重点 | 结构化审核结果、`binary.report` Markdown 和 `binary.report2` JSON |
+| `IflyAnimatedSketch` | `renderHtmlToGif` | 受限 HTML/SVG/CSS 文本或 UTF-8 binary、尺寸与动画参数 | `binary.image` GIF、尺寸和帧数 |
 
-当前共 9 个节点、23 个操作。合同审核和 Animated Sketch Diagram 没有注册为可执行节点：合同审核仍缺少完整的内部客户端，Animated Sketch Diagram 需要未随包分发的渲染资源及浏览器/ffmpeg 依赖。票据 OCR 与通用 PDF/图片 OCR 是两个独立节点，不能互相替代。
+当前共 11 个节点、25 个操作。合同审核会编排多个客户端；手绘图节点只渲染现成 HTML，不包含自然语言生成图表操作。票据 OCR 与通用 PDF/图片 OCR 是两个独立节点，不能互相替代。
 
 ## 运行结构
 
@@ -42,11 +44,15 @@ n8n node
   -> PythonRunner
   -> child_process.spawn(python -I -B -u -X utf8)
   -> runtime/bridge/bridge.py
-  -> one allow-listed Skill module
+  -> fixed adapter and allow-listed Skill modules
   -> JSON response and optional binary artifacts
 ```
 
-`runtime/` 在构建或打包时由 `skills.json` 和仓库 `skills/` 生成，不手工维护第二份业务脚本。bridge 只接受 `operations.json` 中登记的固定 skill/operation，丢弃 Skill 的 stdout/stderr，并将上游异常转换为固定错误码。每次调用使用独立临时目录，输入 binary 由 n8n helper 写入，输出在持久化完成后回收。
+`runtime/` 在构建或打包时由包内 `python/` 适配代码和 `skills.json` 列出的原 Skill 文件生成；原文件按字节复制，不维护第二份业务脚本。bridge 只接受 `operations.json` 中登记的固定 skill/operation，丢弃 Skill 的 stdout/stderr，并将上游异常转换为固定错误码。每次调用使用独立临时目录，输入 binary 由 n8n helper 写入，输出在持久化完成后回收。
+
+Node 负责表单、凭证与 binary 映射，bridge 负责参数校验和结果适配。合同 Skill 的服务客户端原为待实现接口；包内 `python/contract/` 补齐这些服务适配，复用原 Skill 的文本清洗、条款、风险、合规、双语检查和报告处理器，以及现有 OCR、翻译和图片理解脚本。原合同 CLI、配置和客户端接口保持原有职责。
+
+手绘图的 Python 包装器和受限渲染配置位于包内 `python/diagram/`，调用原 Skill 导出的 `renderGif`；原渲染 CLI 保留默认参数和可信本地 HTML 的使用方式。Playwright、浏览器与 ffmpeg 子进程沿用调用的临时目录和进程树取消机制。Skill 源码改动限于复用入口及已确认的签名、分片、流结束判定和报告缺陷修正；n8n 专用限制和字段不写入原 Skill 接口。
 
 请求协议使用版本 `1`，包含 `requestId`、`input` 和 `parameters`。成功结果包含 `ok: true`、`status: succeeded`、`data`、`artifacts` 和执行耗时；节点输出会保留 `pairedItem`。默认错误会终止当前节点，开启 n8n 的 continue-on-fail 后才会按 item 写入 `json.error`。
 
@@ -60,7 +66,9 @@ n8n node
 | `apiKey` | `IFLY_API_KEY` |
 | `apiSecret` | `IFLY_API_SECRET` |
 
-翻译、校对、票据 OCR、Hyper TTS、图片 OCR、极速转写、图片理解和声音克隆合成使用完整三元组。PDF OCR 的创建和查询只需要 `appId` 与 `apiSecret`；视频翻译只需要 `apiKey` 与 `apiSecret`；声音克隆训练只需要 `appId` 与 `apiKey`。执行层按操作注入凭证，不会将无关字段传给子进程。`listVoices` 不需要凭证，也不能用来验证账户权限或真实合成能力。子进程不会继承主机中的 `XFEI_*`、`XFYUN_*`、`PYTHONPATH`、`NODE_OPTIONS` 或其他未列入白名单的变量。
+翻译、校对、票据 OCR、Hyper TTS、图片 OCR、极速转写、图片理解、声音克隆合成和合同审核使用完整三元组。PDF OCR 的创建和查询只需要 `appId` 与 `apiSecret`；视频翻译只需要 `apiKey` 与 `apiSecret`；声音克隆训练只需要 `appId` 与 `apiKey`。合同内部客户端复用同套凭证，但应用仍需开通星火 `generalv3.5` 及所选 OCR、图片理解、翻译服务权限。
+
+执行层按操作注入凭证，不会将无关字段传给子进程。`listVoices` 只读取本地常量，无需凭证，也不能用来验证账户权限或真实合成能力。手绘图渲染不读取或注入 API 凭证。子进程不会继承主机中的 `XFEI_*`、`XFYUN_*`、`PYTHONPATH`、`NODE_OPTIONS` 或其他未列入白名单的变量。
 
 管理员需要在 n8n 进程环境中配置 Python 解释器的绝对路径：
 
@@ -69,18 +77,78 @@ $env:IFLYTEK_PYTHON_EXECUTABLE = 'C:\path\to\venv\Scripts\python.exe'
 $env:IFLYTEK_TMP_ROOT = 'C:\path\to\existing-temp-directory' # 可选
 ```
 
-Linux/macOS 使用对应的 `/absolute/venv/bin/python` 路径。Python 依赖由管理员按 `python/requirements-core.lock` 安装；节点执行和 npm 安装不会自动运行 pip。`IFLY_TEST_PYTHON` 仅供测试脚本选择解释器，不参与节点运行配置。
+Linux/macOS 使用对应的 `/absolute/venv/bin/python` 路径。原子服务使用 `python/requirements-core.lock`；使用合同 PDF/DOCX 提取时安装 `python/requirements-full.lock`（包含 core）。安装后在 npm 制品内使用对应的 `runtime/requirements/` 路径。节点执行和 npm 安装不会自动运行 pip。
 
-## 节点输入约定
+手绘图还需要管理员预装 Chromium/Chrome/Edge 和 ffmpeg，并配置绝对路径：
 
-- 文本节点接受直接文本或指定的 UTF-8 binary 字段；两者同时提供时使用直接文本。
-- 图片 OCR、票据 OCR、图片理解和 PDF 任务使用 n8n binary 字段，不接受本地文件路径。PDF 创建任务也可以使用公开的 HTTP(S) URL。
-- 极速转写当前按 MP3 任务接口提交；bridge 会在调用目录中使用 `.mp3` 临时扩展名，目录在调用结束后删除。
-- PDF `getPdfTask` 与 `getResult` 都查询任务状态。完成状态为 `FINISH` 或 `ANY_FAILED` 时，`getResult` 返回完成标记；下载地址仍由服务响应提供，节点不会擅自下载或改写外部文件。
-- Hyper TTS 合成输出默认写入 `binary.audio`，文件名为 `speech.mp3`；`listVoices` 只读取随包的常量。
-- 图片理解支持 `general`/`imagev3`、`temperature` `(0, 1]` 和 `maxTokens` `1..8192`。原始 WebSocket 帧不会暴露给 n8n。
-- 视频翻译使用公开视频 URL，不在节点内上传本地视频；`confirmTranscript` 单独执行确认，并通过 `forceRerun` 明确控制后续重跑，不自动重试任务提交。
-- 声音克隆训练拆分为获取训练文本、创建任务、上传样本、提交和查询状态；上传样本可使用 binary 或公开 URL，二者必须二选一。合成需要已训练的 `resId`，输出支持 MP3、PCM、Speex 和 Opus。
+```powershell
+$env:IFLYTEK_CHROME_EXECUTABLE = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+$env:IFLYTEK_FFMPEG_EXECUTABLE = 'C:\path\to\ffmpeg.exe'
+```
+
+Node 使用当前 n8n 进程的解释器；`playwright-core` 作为 npm 运行依赖安装。浏览器与 ffmpeg 不随包分发，也不会自动下载。路径属于管理员配置，不是工作流输入；Linux 需运行在支持 Chromium sandbox 的非 root 环境，本包不关闭该 sandbox。
+
+## 节点使用说明
+
+各节点的文件输入通过 n8n binary 字段传递，不接受本地文件路径。支持文本输入的节点可使用直接文本或指定的 UTF-8 binary 字段；两者同时提供时使用直接文本。
+
+### 文本翻译
+
+接受文本、源语言和目标语言，返回译文及语言信息；源语言和目标语言分别通过 `fromLanguage`、`toLanguage` 指定。
+
+### 文本校对
+
+接受中文文本，在 `data.result` 中返回校对结果。服务返回业务失败码时映射为节点错误。
+
+### 票据识别
+
+接受发票、收据等图片或 PDF binary，在 `data.result` 中返回票据识别结果。
+
+### Hyper TTS 语音合成
+
+接受文本、音色和声音参数，合成输出默认写入 `binary.audio`，文件名为 `speech.mp3`。只有收到服务结束帧才返回成功，结果不包含随后被清理的临时文件路径。
+
+`listVoices` 只读取随包的静态音色常量，不调用合成服务；实际语音合成仍需配置凭证并具备对应服务权限。
+
+### PDF 与图片 OCR
+
+图片识别接受图片 binary；PDF 创建任务接受 PDF binary 或公开 HTTP(S) URL，填写 URL 后忽略 binary 字段。
+
+`getPdfTask` 与 `getResult` 都查询 PDF 任务状态。完成状态为 `FINISH` 或 `ANY_FAILED` 时返回完成标记；下载地址由服务响应提供，节点不会自动下载结果文件。
+
+### 极速转写
+
+创建任务接受 MP3 binary，可指定语言、口音和领域。创建后通过返回的 `taskId` 查询状态或获取转写文本与分段结果。
+
+### 图片理解
+
+接受图片 binary 和问题，支持 `general`/`imagev3`、`temperature` `(0, 1]` 和 `maxTokens` `1..8192`。只有收到服务结束帧才返回文本结果，原始 WebSocket 帧不会暴露给 n8n。
+
+### 视频翻译
+
+使用公开视频 HTTP(S) URL 创建任务，不在节点内上传本地视频；支持列出任务和按 `taskId` 查询详情。`confirmTranscript` 单独执行确认，并通过 `forceRerun` 明确控制后续重跑，不自动重试任务提交。
+
+### 声音克隆
+
+训练支持获取训练文本、创建任务、上传样本、提交和查询状态。样本填写公开 URL 后忽略 binary，仅添加音频，需要再执行 `submitTraining`。binary 上传会同时提交训练：必须开启节点中的确认选项，输入不得超过 3 MiB，随后执行 `getTraining`，不要重复提交。`data.trainingSubmitted` 标明本次是否已提交；音频时长、采样率和内容还需满足服务要求。训练业务失败码映射为节点错误。
+
+合成需要已训练的 `resId`，输出支持 MP3、PCM、Speex 和 Opus，只有收到服务结束帧才返回成功。
+
+### 合同审核
+
+接受直接文本、UTF-8 binary，或显式选择格式的 PDF、DOCX、PNG、JPEG、BMP binary。文档上限 20 MiB，图片 OCR 上限 4 MiB；PDF 最多 8 页，以最长边不超过 1600 像素逐页栅格化后调用图片 OCR。提取的全文最多 4000 字符，超限会失败，不静默截断；长合同由调用方拆分，片段间关系需另行审查。DOCX 读取正文段落与表格，不提取页眉页脚、批注、文本框或嵌入对象。
+
+默认图片提取方法为 OCR；显式选择 Image Understanding 时按模型推断标记，不在 OCR 失败后自动切换服务。文本经过规则检查和星火 `v3.5/chat` 审阅；可选将中文模型摘要翻译为英文。合规与双语检查属于本地规则，模型风险引用会与送审文本核对，全部结果仍需人工复核。不提供未经服务返回的识别置信度。
+
+任一必需服务失败时返回受控错误，不自动重试；调用沿用公共层 120 秒总时限，包含逐页 OCR。JSON 结果包含规则与模型输出，Markdown/JSON 报告在 n8n binary 持久化后回收临时文件。
+
+### 手绘图渲染
+
+从 [受限流程图模板](python/diagram/workflow.html) 开始修改；npm 制品内同一模板位于 `runtime/bridge/diagram/workflow.html`。支持常见 HTML 文本容器、SVG 基本形状和 CSS 动画；不接受脚本、事件属性、iframe、表单、外部图片、链接或用户字体资源，也不接受 CSS URL、转义和注释。渲染器禁用页面 JavaScript、阻断外部请求，内嵌随包 Kalam 字体；中文使用主机已安装的字体回退。
+
+输入上限 256 KiB、2000 个元素；宽度 64–1600、高度 64–1200、帧率 1–25、时长 100–5000 ms、倍率 1 或 2，总像素预算为 `ceil(时长 × 帧率 / 1000) × 宽 × 高 × 倍率² ≤ 120,000,000`。尺寸和动画时长应与 HTML 对齐；不保证任意动画天然无缝。GIF 产物上限 32 MiB。
+
+受限格式和资源拦截不能替代生产环境的容器/系统隔离；请按部署要求限制浏览器进程的内存、CPU 和文件访问权限。
 
 ## 安装、构建与打包
 
@@ -89,7 +157,7 @@ Linux/macOS 使用对应的 `/absolute/venv/bin/python` 路径。Python 依赖�
 ```sh
 cd packages/n8n-nodes-iflytek
 npm ci
-<venv-python> -m pip install -r python/requirements-core.lock
+<venv-python> -m pip install -r python/requirements-full.lock
 <venv-python> -m pip check
 npm run check
 npm pack --dry-run
@@ -107,10 +175,14 @@ npm pack --dry-run
 git diff --check
 ```
 
-测试使用本地 fixture 和模拟 Skill 模块，不调用真实服务或输出真实凭证，覆盖 bridge adapter、三元组/部分凭证隔离、binary 输入输出、协议错误、取消和超时、临时目录回收、节点元数据、运行资源 staging 及制品清单。临时目录、tarball、`.pyc` 和测试缓存不应提交；`dist/`、`runtime/`、`node_modules/` 是可重建或开发目录，保持 Git 忽略即可。
+测试调用全部 11 个节点的实际 execute 方法，覆盖 25 个操作的分派、凭证和 binary 映射。另有真实原子 Skill 与合同适配器的传输替身测试，以及共享执行层的子进程测试，覆盖签名、业务失败码、流中断、报告、文档提取、取消、超时、临时目录回收和 runtime 清单；这些离线测试不调用收费服务。
+
+配置 `IFLY_TEST_CHROME` 和 `IFLY_TEST_FFMPEG` 为预装程序的绝对路径，可额外执行真实 GIF 解码、渲染取消和模拟 n8n 上下文的 binary 输出测试；未配置时这些测试显式跳过。`IFLY_TEST_PYTHON` 和两个渲染测试变量仅供测试使用，不参与节点运行配置。测试 Python 需安装 full 依赖。
+
+临时目录、tarball、`.pyc` 和测试缓存不应提交；`dist/`、`runtime/`、`node_modules/` 是可重建或开发目录，保持 Git 忽略即可。
 
 真实 n8n 实例兼容性、服务端权限与配额、业务识别质量、发布版本管理和 npm 发布不属于当前开发包的离线测试结论。
 
 ## 许可
 
-本包使用 Apache-2.0 许可证，详见 [LICENSE](LICENSE)。
+本包使用 Apache-2.0 许可证，详见 [LICENSE](LICENSE)。随包手绘图 Skill 的上游代码使用 MIT，Kalam 字体使用 SIL OFL 1.1；对应许可文件与字体一同保存在 runtime 的 Skill 目录。Playwright Core 使用 Apache-2.0；浏览器和 ffmpeg 由管理员按各自许可安装。

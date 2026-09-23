@@ -117,7 +117,7 @@ class XfeiSpeedTranscription:
         now = datetime.datetime.now()
         date = format_date_time(mktime(now.timetuple()))
 
-        digest = "SHA-256=" + self._hashlib_256('')
+        digest = self._hashlib_256('')
         signature_origin = f"host: {host}\ndate: {date}\n{method} {path} HTTP/1.1\ndigest: {digest}"
 
         signature_sha = hmac.new(
@@ -208,10 +208,7 @@ class XfeiSpeedTranscription:
         # Upload chunks
         with open(file_path, 'rb') as f:
             for slice_id in range(1, chunks + 1):
-                if slice_id == chunks:
-                    current_size = file_size % self.chunk_size
-                else:
-                    current_size = self.chunk_size
+                current_size = min(self.chunk_size, file_size - (slice_id - 1) * self.chunk_size)
 
                 chunk_data = f.read(current_size)
 

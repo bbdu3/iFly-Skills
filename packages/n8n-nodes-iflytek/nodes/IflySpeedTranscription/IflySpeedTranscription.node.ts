@@ -1,5 +1,5 @@
 import type { IExecuteFunctions, INodeType, INodeTypeDescription } from 'n8n-workflow';
-import { credential, executeItems, getString } from '../common';
+import { credential, executeItems, getOperation, getString } from '../common';
 
 export class IflySpeedTranscription implements INodeType {
   description: INodeTypeDescription = {
@@ -29,7 +29,7 @@ export class IflySpeedTranscription implements INodeType {
 
   async execute(this: IExecuteFunctions) {
     return executeItems(this, (index) => {
-      const operation = getString(this, 'operation', index, 'createTask');
+      const operation = getOperation(this, index, 'createTask', ['createTask', 'getTask', 'getResult']);
       if (operation === 'createTask') return {
         skill: 'iflytek-speed-transcription', operation, input: {},
         parameters: {

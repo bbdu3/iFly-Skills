@@ -1,5 +1,5 @@
 import type { IExecuteFunctions, INodeType, INodeTypeDescription } from 'n8n-workflow';
-import { credential, executeItems, getString } from '../common';
+import { credential, executeItems, getOperation, getString } from '../common';
 
 export class IflyVideoTranslate implements INodeType {
   description: INodeTypeDescription = {
@@ -33,7 +33,7 @@ export class IflyVideoTranslate implements INodeType {
 
   async execute(this: IExecuteFunctions) {
     return executeItems(this, (index) => {
-      const operation = getString(this, 'operation', index, 'createTask');
+      const operation = getOperation(this, index, 'createTask', ['createTask', 'listTasks', 'getTask', 'confirmTranscript']);
       if (operation === 'createTask') return {
         skill: 'iflytek-video-translate', operation, input: {}, parameters: {
           fileUrl: getString(this, 'fileUrl', index, ''),

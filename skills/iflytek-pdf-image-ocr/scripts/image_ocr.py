@@ -43,11 +43,12 @@ class IflyImageOCRClient:
         Returns:
             Authenticated URL
         """
-        from urllib.parse import urlencode, quote
+        from urllib.parse import urlencode, urlsplit
 
         # Parse host and path
-        host = self.API_HOST.replace("https://", "").replace("http://", "")
-        path = "/v1/private/se75ocrbm"
+        endpoint = urlsplit(self.API_HOST)
+        host = endpoint.netloc
+        path = endpoint.path
 
         # Generate date in RFC1123 format
         date = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")

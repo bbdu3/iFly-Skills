@@ -138,6 +138,18 @@
       "operation": "synthesize",
       "credentials": ["appId", "apiKey", "apiSecret"],
       "artifactMimeTypes": ["audio/mpeg", "audio/L16", "audio/speex", "audio/opus"]
+    },
+    {
+      "skill": "iflytek-contract-intelligence-review",
+      "operation": "review",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": ["text/markdown", "application/json"]
+    },
+    {
+      "skill": "animated-sketch-diagram",
+      "operation": "renderHtmlToGif",
+      "credentials": [],
+      "artifactMimeTypes": ["image/gif"]
     }
   ]
 }

@@ -151,7 +151,7 @@ def _http_post(url, body_dict, app_id, timeout=60):
     data = json.dumps(body_dict).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
-        "host": "api.xf-yun.com",
+        "host": urllib.parse.urlsplit(url).netloc,
         "app_id": app_id,
     }
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")

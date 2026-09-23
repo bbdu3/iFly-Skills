@@ -1,5 +1,5 @@
 import type { IExecuteFunctions, INodeType, INodeTypeDescription } from 'n8n-workflow';
-import { credential, executeItems, getString } from '../common';
+import { credential, executeItems, getOperation, getString } from '../common';
 import type { ItemOperation } from '../../shared/executeSkill';
 
 export class IflyPdfImageOcr implements INodeType {
@@ -29,7 +29,7 @@ export class IflyPdfImageOcr implements INodeType {
       },
       {
         displayName: 'PDF URL', name: 'pdfUrl', type: 'string', default: '',
-        description: 'Optional public HTTP(S) URL. Provide this or a PDF binary property.',
+        description: 'Optional public HTTP(S) URL. When set, the binary property is ignored.',
         displayOptions: { show: { operation: ['createPdfTask'] } },
       },
       {
@@ -47,7 +47,7 @@ export class IflyPdfImageOcr implements INodeType {
 
   async execute(this: IExecuteFunctions) {
     return executeItems(this, (index): ItemOperation => {
-      const operation = getString(this, 'operation', index, 'recognizeImage');
+      const operation = getOperation(this, index, 'recognizeImage', ['recognizeImage', 'createPdfTask', 'getPdfTask', 'getResult']);
       if (operation === 'recognizeImage') return {
         skill: 'iflytek-pdf-image-ocr', operation, input: {},
         parameters: { resultFormat: getString(this, 'resultFormat', index, 'json,markdown') },
@@ -59,7 +59,7 @@ export class IflyPdfImageOcr implements INodeType {
         return {
           skill: 'iflytek-pdf-image-ocr', operation, input: {},
           parameters: { pdfUrl: url, exportFormat: getString(this, 'exportFormat', index, 'word') },
-          binaryInputs: binary ? { pdf: binary } : undefined,
+          binaryInputs: !url && binary ? { pdf: binary } : undefined,
         };
       }
       return {

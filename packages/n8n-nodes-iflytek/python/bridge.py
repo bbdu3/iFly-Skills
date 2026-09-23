@@ -41,6 +41,7 @@ def load_packaged_module(relative_path):
         raise BridgeError('RUNTIME_MISSING')
     spec = importlib.util.spec_from_file_location('ifly_packaged_skill', target)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     # Legacy modules may sys.exit when imports fail. Classify import-time exits
     # separately, without parsing the human-readable diagnostic text.
     try:
@@ -131,7 +132,7 @@ def proofread(request):
         result = skill._parse_result(response)
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error
-    if not isinstance(result, dict) or result.get('error'):
+    if not isinstance(result, dict) or result.get('error') or result.get('code') != 200:
         raise BridgeError('UPSTREAM_ERROR')
     return {'result': result}, []
 
@@ -280,7 +281,9 @@ def create_pdf_task(request):
         raise BridgeError('INVALID_INPUT')
     pdf_path = None
     if isinstance(files, dict) and files.get('pdf'):
-        pdf_path = _pdf_input_path(files['pdf'])
+        pdf_path = Path(_pdf_input_path(files['pdf']))
+    if pdf_path and pdf_url:
+        raise BridgeError('INVALID_INPUT')
     if not pdf_path and not pdf_url:
         raise BridgeError('INVALID_INPUT')
     try:
@@ -520,11 +523,18 @@ def _voice_client(skill):
     return skill.TrainClient(os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'])
 
 
+def _training_result(result):
+    if (not isinstance(result, dict) or type(result.get('code')) is not int
+            or result['code'] != 0 or result.get('flag') is not True):
+        raise BridgeError('UPSTREAM_ERROR')
+    return result
+
+
 def voice_get_training_text(request):
     skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
     text_id = _positive_int(_parameters(request), 'textId', 5001)
     try:
-        result = _voice_client(skill).get_training_text(text_id)
+        result = _training_result(_voice_client(skill).get_training_text(text_id))
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error
     return {'textId': text_id, 'result': result}, []
@@ -551,10 +561,10 @@ def voice_create_training(request):
                                       or not callback_url.startswith(('http://', 'https://'))):
         raise BridgeError('INVALID_INPUT')
     try:
-        result = _voice_client(skill).create_task(
+        result = _training_result(_voice_client(skill).create_task(
             name=name, sex=sex, engine=engine, language=language,
             resource_name=resource_name or None, callback_url=callback_url or None,
-        )
+        ))
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error
     return {'result': result}, []
@@ -581,6 +591,10 @@ def voice_upload_sample(request):
     has_file = isinstance(files, dict) and 'audio' in files
     if bool(audio_url) == has_file:
         raise BridgeError('INVALID_INPUT')
+    if has_file and parameters.get('confirmBinarySubmission') is not True:
+        raise BridgeError('INVALID_INPUT')
+    if has_file and Path(_file_path(files['audio'])).stat().st_size > 3 * 1024 * 1024:
+        raise BridgeError('INVALID_INPUT')
     try:
         client = _voice_client(skill)
         if audio_url:
@@ -589,18 +603,19 @@ def voice_upload_sample(request):
             audio_format = parameters.get('audioFormat', 'wav')
             path = _voice_audio_path(files['audio'], audio_format)
             result = client.upload_audio_file(task_id, path, text_id, segment_id)
+        result = _training_result(result)
     except BridgeError:
         raise
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error
-    return {'taskId': task_id, 'result': result}, []
+    return {'taskId': task_id, 'trainingSubmitted': has_file, 'result': result}, []
 
 
 def voice_submit_training(request):
     skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
     task_id = _numeric_task_id(request)
     try:
-        result = _voice_client(skill).submit_task(task_id)
+        result = _training_result(_voice_client(skill).submit_task(task_id))
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error
     return {'taskId': task_id, 'result': result}, []
@@ -610,7 +625,7 @@ def voice_get_training(request):
     skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
     task_id = _numeric_task_id(request)
     try:
-        result = _voice_client(skill).get_task_status(task_id)
+        result = _training_result(_voice_client(skill).get_task_status(task_id))
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error
     data = result.get('data', {}) if isinstance(result, dict) else {}
@@ -676,7 +691,77 @@ def synthesize(request):
         raise BridgeError('UPSTREAM_ERROR') from error
     if not output.is_file() or output.is_symlink():
         raise BridgeError('INVALID_ARTIFACT')
+    result.pop('output_path', None)
     return result, [{'relativePath': 'speech.mp3', 'fileName': 'speech.mp3', 'mimeType': 'audio/mpeg'}]
+
+
+def review_contract(request):
+    parameters = _parameters(request)
+    if set(parameters) - {'format', 'lang', 'reviewMode', 'focus', 'needTranslation', 'imageMethod'}:
+        raise BridgeError('INVALID_INPUT')
+    fmt = parameters.get('format', 'text')
+    if fmt not in ('text', 'pdf', 'png', 'jpg', 'bmp', 'docx'):
+        raise BridgeError('INVALID_INPUT')
+    root = Path(os.environ['TMP'])
+    target = root / ('contract.' + ('txt' if fmt == 'text' else fmt))
+    if fmt == 'text':
+        text = _text(request)
+        if len(text) > 4000:
+            raise BridgeError('INVALID_INPUT')
+        target.write_text(text, encoding='utf-8')
+    else:
+        files = request['input'].get('files', {})
+        source = Path(_file_path(files.get('document')))
+        if source.stat().st_size > 20 * 1024 * 1024:
+            raise BridgeError('INVALID_INPUT')
+        with source.open('rb') as stream:
+            header = stream.read(8)
+        signatures = {'pdf': b'%PDF-', 'png': b'\x89PNG\r\n\x1a\n', 'jpg': b'\xff\xd8\xff',
+                      'bmp': b'BM', 'docx': b'PK\x03\x04'}
+        if not header.startswith(signatures[fmt]):
+            raise BridgeError('INVALID_INPUT')
+        shutil.copyfile(source, target)
+    # -I excludes script directories. Only these fixed package directories supply imports.
+    for directory in (BRIDGE_ROOT, RUNTIME_ROOT / 'skills/iflytek-contract-intelligence-review/scripts'):
+        if str(directory) not in sys.path:
+            sys.path.insert(0, str(directory))
+    from contract import main as skill
+    try:
+        result = skill.run_review(
+            input_path=str(target), lang=parameters.get('lang', 'zh'),
+            review_mode=parameters.get('reviewMode', 'standard'), focus=parameters.get('focus', []),
+            need_translation=parameters.get('needTranslation', False),
+            output_dir=str(root), config=skill.Config(),
+            image_method=parameters.get('imageMethod', 'ocr'))
+    except ImportError:
+        raise
+    except (skill.InputValidationError, ValueError) as error:
+        raise BridgeError('INVALID_INPUT') from error
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return result, [
+        {'relativePath': 'contract_review_report.md', 'fileName': 'contract_review_report.md', 'mimeType': 'text/markdown'},
+        {'relativePath': 'contract_review_result.json', 'fileName': 'contract_review_result.json', 'mimeType': 'application/json'},
+    ]
+
+
+def render_diagram(request):
+    parameters = _parameters(request)
+    if set(parameters) - {'width', 'height', 'fps', 'durationMs', 'scale'}:
+        raise BridgeError('INVALID_INPUT')
+    skill = load_packaged_module('bridge/diagram/render.py')
+    try:
+        result = skill.render_html(
+            _text(request), os.environ['TMP'], width=parameters.get('width', 800),
+            height=parameters.get('height', 500), fps=parameters.get('fps', 10),
+            duration_ms=parameters.get('durationMs', 2000), scale=parameters.get('scale', 1))
+    except ImportError:
+        raise
+    except ValueError as error:
+        raise BridgeError('INVALID_INPUT') from error
+    except Exception as error:
+        raise BridgeError('PROCESS_EXIT') from error
+    return result, [{'relativePath': 'diagram.gif', 'fileName': 'diagram.gif', 'mimeType': 'image/gif'}]
 
 
 # Fixed dispatch table for packaged adapters; test adapters are excluded.
@@ -704,6 +789,8 @@ OPERATIONS = {
     ('iflytek-voiceclone-tts', 'submitTraining'): voice_submit_training,
     ('iflytek-voiceclone-tts', 'getTraining'): voice_get_training,
     ('iflytek-voiceclone-tts', 'synthesize'): voice_synthesize,
+    ('iflytek-contract-intelligence-review', 'review'): review_contract,
+    ('animated-sketch-diagram', 'renderHtmlToGif'): render_diagram,
 }
 
 

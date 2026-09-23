@@ -1,5 +1,5 @@
 import type { IExecuteFunctions, INodeType, INodeTypeDescription } from 'n8n-workflow';
-import { credential, executeItems, getNumber, getString, textItem, textProperties } from '../common';
+import { credential, executeItems, getNumber, getOperation, getString, textItem, textProperties } from '../common';
 import type { ItemOperation } from '../../shared/executeSkill';
 
 export class IflyVoicecloneTts implements INodeType {
@@ -37,9 +37,14 @@ export class IflyVoicecloneTts implements INodeType {
       { displayName: 'Callback URL', name: 'callbackUrl', type: 'string', default: '', displayOptions: { show: { operation: ['createTraining'] } } },
       {
         displayName: 'Audio Binary Property', name: 'audioBinaryProperty', type: 'string', default: 'data',
-        description: 'Binary property containing the training sample.', displayOptions: { show: { operation: ['uploadSample'] } },
+        description: 'Binary sample, up to 3 MiB. Uploading a binary sample also submits training; confirmation is required.', displayOptions: { show: { operation: ['uploadSample'] } },
       },
-      { displayName: 'Audio URL', name: 'audioUrl', type: 'string', default: '', description: 'Use this instead of a binary sample.', displayOptions: { show: { operation: ['uploadSample'] } } },
+      { displayName: 'Audio URL', name: 'audioUrl', type: 'string', default: '', description: 'When set, ignores the binary property and only adds audio. Submit Training separately.', displayOptions: { show: { operation: ['uploadSample'] } } },
+      {
+        displayName: 'Confirm Binary Upload and Training Submission', name: 'confirmBinarySubmission', type: 'boolean', default: false,
+        description: 'Whether to allow the binary upload endpoint to submit training. Query Get Training afterward; do not submit it again.',
+        displayOptions: { show: { operation: ['uploadSample'] } },
+      },
       {
         displayName: 'Audio Format', name: 'audioFormat', type: 'options', default: 'wav', options: [
           { name: 'WAV', value: 'wav' }, { name: 'MP3', value: 'mp3' }, { name: 'M4A', value: 'm4a' }, { name: 'PCM', value: 'pcm' },
@@ -63,7 +68,9 @@ export class IflyVoicecloneTts implements INodeType {
 
   async execute(this: IExecuteFunctions) {
     return executeItems(this, (index): ItemOperation => {
-      const operation = getString(this, 'operation', index, 'getTrainingText');
+      const operation = getOperation(this, index, 'getTrainingText', [
+        'getTrainingText', 'createTraining', 'uploadSample', 'submitTraining', 'getTraining', 'synthesize',
+      ]);
       if (operation === 'getTrainingText') return { skill: 'iflytek-voiceclone-tts', operation, input: {}, parameters: {
         textId: getNumber(this, 'textId', index, 5001),
       } };
@@ -75,11 +82,13 @@ export class IflyVoicecloneTts implements INodeType {
       } };
       if (operation === 'uploadSample') {
         const binary = getString(this, 'audioBinaryProperty', index, 'data').trim();
+        const audioUrl = getString(this, 'audioUrl', index, '').trim();
         return { skill: 'iflytek-voiceclone-tts', operation, input: {}, parameters: {
           taskId: getNumber(this, 'taskId', index, 0), textId: getNumber(this, 'textId', index, 5001),
-          segmentId: getNumber(this, 'segmentId', index, 1), audioUrl: getString(this, 'audioUrl', index, '').trim(),
+          segmentId: getNumber(this, 'segmentId', index, 1), audioUrl,
           audioFormat: getString(this, 'audioFormat', index, 'wav'),
-        }, binaryInputs: binary ? { audio: binary } : undefined };
+          confirmBinarySubmission: this.getNodeParameter('confirmBinarySubmission', index, false) as boolean,
+        }, binaryInputs: !audioUrl && binary ? { audio: binary } : undefined };
       }
       if (operation === 'submitTraining' || operation === 'getTraining') return { skill: 'iflytek-voiceclone-tts', operation, input: {}, parameters: {
         taskId: getNumber(this, 'taskId', index, 0),
