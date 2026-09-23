@@ -78,6 +78,66 @@
       "operation": "analyze",
       "credentials": ["appId", "apiKey", "apiSecret"],
       "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-video-translate",
+      "operation": "createTask",
+      "credentials": ["apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-video-translate",
+      "operation": "listTasks",
+      "credentials": ["apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-video-translate",
+      "operation": "getTask",
+      "credentials": ["apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-video-translate",
+      "operation": "confirmTranscript",
+      "credentials": ["apiKey", "apiSecret"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-voiceclone-tts",
+      "operation": "getTrainingText",
+      "credentials": ["appId", "apiKey"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-voiceclone-tts",
+      "operation": "createTraining",
+      "credentials": ["appId", "apiKey"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-voiceclone-tts",
+      "operation": "uploadSample",
+      "credentials": ["appId", "apiKey"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-voiceclone-tts",
+      "operation": "submitTraining",
+      "credentials": ["appId", "apiKey"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-voiceclone-tts",
+      "operation": "getTraining",
+      "credentials": ["appId", "apiKey"],
+      "artifactMimeTypes": []
+    },
+    {
+      "skill": "iflytek-voiceclone-tts",
+      "operation": "synthesize",
+      "credentials": ["appId", "apiKey", "apiSecret"],
+      "artifactMimeTypes": ["audio/mpeg", "audio/L16", "audio/speex", "audio/opus"]
     }
   ]
 }

@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import sys
 import time
+from types import SimpleNamespace
 
 BRIDGE_ROOT = Path(__file__).resolve().parent
 RUNTIME_ROOT = BRIDGE_ROOT.parent
@@ -425,6 +426,232 @@ def analyze_image(request):
     return {'text': result}, []
 
 
+def _url_parameter(parameters, name):
+    value = parameters.get(name)
+    if not isinstance(value, str) or not value.startswith(('http://', 'https://')) or len(value) > 2048:
+        raise BridgeError('INVALID_INPUT')
+    return value
+
+
+def _remote_task_id(request, name):
+    value = _task_no(request, name)
+    if not all(character.isalnum() or character in '-_' for character in value):
+        raise BridgeError('INVALID_INPUT')
+    return value
+
+
+def video_create_task(request):
+    skill = load_packaged_module('skills/iflytek-video-translate/scripts/xfei_video_translate.py')
+    parameters = _parameters(request)
+    file_url = _url_parameter(parameters, 'fileUrl')
+    source_language = parameters.get('sourceLanguage', 'en')
+    target_language = parameters.get('targetLanguage', 'zh')
+    task_name = parameters.get('taskName', '')
+    if (not isinstance(source_language, str) or not source_language or len(source_language) > 32
+            or not isinstance(target_language, str) or not target_language or len(target_language) > 32
+            or not isinstance(task_name, str) or len(task_name) > 256):
+        raise BridgeError('INVALID_INPUT')
+    try:
+        result = skill.XfeiVideoTranslateClient(
+            os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
+        ).create_task(file_url, source_language, target_language, task_name or None)
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'result': result}, []
+
+
+def video_list_tasks(request):
+    if set(request['input']) - {'files'} or request['input'].get('files') or request['parameters']:
+        raise BridgeError('INVALID_INPUT')
+    skill = load_packaged_module('skills/iflytek-video-translate/scripts/xfei_video_translate.py')
+    try:
+        result = skill.XfeiVideoTranslateClient(
+            os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
+        ).list_tasks()
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'result': result}, []
+
+
+def video_get_task(request):
+    skill = load_packaged_module('skills/iflytek-video-translate/scripts/xfei_video_translate.py')
+    task_id = _remote_task_id(request, 'taskId')
+    try:
+        result = skill.XfeiVideoTranslateClient(
+            os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
+        ).get_task(task_id)
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'taskId': task_id, 'result': result}, []
+
+
+def video_confirm_transcript(request):
+    skill = load_packaged_module('skills/iflytek-video-translate/scripts/xfei_video_translate.py')
+    task_id = _remote_task_id(request, 'taskId')
+    force_rerun = _parameters(request).get('forceRerun', False)
+    if type(force_rerun) is not bool:
+        raise BridgeError('INVALID_INPUT')
+    try:
+        result = skill.XfeiVideoTranslateClient(
+            os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
+        ).confirm_transcript(task_id, force_rerun=force_rerun)
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'taskId': task_id, 'forceRerun': force_rerun, 'result': result}, []
+
+
+def _numeric_task_id(request):
+    value = _parameters(request).get('taskId')
+    if type(value) is not int or value <= 0 or value > 2 ** 53 - 1:
+        raise BridgeError('INVALID_INPUT')
+    return value
+
+
+def _positive_int(parameters, name, fallback, maximum=2 ** 31 - 1):
+    value = parameters.get(name, fallback)
+    if type(value) is not int or value <= 0 or value > maximum:
+        raise BridgeError('INVALID_INPUT')
+    return value
+
+
+def _voice_client(skill):
+    return skill.TrainClient(os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'])
+
+
+def voice_get_training_text(request):
+    skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
+    text_id = _positive_int(_parameters(request), 'textId', 5001)
+    try:
+        result = _voice_client(skill).get_training_text(text_id)
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'textId': text_id, 'result': result}, []
+
+
+def voice_create_training(request):
+    skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
+    parameters = _parameters(request)
+    name = parameters.get('name', 'voice_clone_task')
+    sex = parameters.get('sex', 'female')
+    engine = parameters.get('engine', 'omni_v1')
+    language = parameters.get('language', 'cn')
+    resource_name = parameters.get('resourceName')
+    callback_url = parameters.get('callbackUrl')
+    if not isinstance(name, str) or not name or len(name) > 256 or not isinstance(engine, str) or not engine:
+        raise BridgeError('INVALID_INPUT')
+    if isinstance(sex, str):
+        sex = {'male': 1, 'm': 1, 'female': 2, 'f': 2, '1': 1, '2': 2}.get(sex.lower())
+    if sex not in (1, 2) or language not in ('cn', 'en', 'jp', 'ko', 'ru'):
+        raise BridgeError('INVALID_INPUT')
+    if resource_name is not None and (not isinstance(resource_name, str) or len(resource_name) > 256):
+        raise BridgeError('INVALID_INPUT')
+    if callback_url is not None and (not isinstance(callback_url, str) or len(callback_url) > 2048
+                                      or not callback_url.startswith(('http://', 'https://'))):
+        raise BridgeError('INVALID_INPUT')
+    try:
+        result = _voice_client(skill).create_task(
+            name=name, sex=sex, engine=engine, language=language,
+            resource_name=resource_name or None, callback_url=callback_url or None,
+        )
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'result': result}, []
+
+
+def _voice_audio_path(relative, audio_format):
+    if audio_format not in ('wav', 'mp3', 'm4a', 'pcm'):
+        raise BridgeError('INVALID_INPUT')
+    return _copy_input_with_suffix(relative, '.' + audio_format, 'voice-sample')
+
+
+def voice_upload_sample(request):
+    skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
+    parameters = _parameters(request)
+    task_id = _numeric_task_id(request)
+    text_id = _positive_int(parameters, 'textId', 5001)
+    segment_id = _positive_int(parameters, 'segmentId', 1)
+    audio_url = parameters.get('audioUrl', '')
+    files = request['input'].get('files')
+    if not isinstance(audio_url, str):
+        raise BridgeError('INVALID_INPUT')
+    if audio_url and (not audio_url.startswith(('http://', 'https://')) or len(audio_url) > 2048):
+        raise BridgeError('INVALID_INPUT')
+    has_file = isinstance(files, dict) and 'audio' in files
+    if bool(audio_url) == has_file:
+        raise BridgeError('INVALID_INPUT')
+    try:
+        client = _voice_client(skill)
+        if audio_url:
+            result = client.upload_audio_url(task_id, audio_url, text_id, segment_id)
+        else:
+            audio_format = parameters.get('audioFormat', 'wav')
+            path = _voice_audio_path(files['audio'], audio_format)
+            result = client.upload_audio_file(task_id, path, text_id, segment_id)
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'taskId': task_id, 'result': result}, []
+
+
+def voice_submit_training(request):
+    skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
+    task_id = _numeric_task_id(request)
+    try:
+        result = _voice_client(skill).submit_task(task_id)
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    return {'taskId': task_id, 'result': result}, []
+
+
+def voice_get_training(request):
+    skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
+    task_id = _numeric_task_id(request)
+    try:
+        result = _voice_client(skill).get_task_status(task_id)
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    data = result.get('data', {}) if isinstance(result, dict) else {}
+    return {'taskId': task_id, 'status': data.get('trainStatus'), 'resourceId': data.get('assetId'), 'result': result}, []
+
+
+def voice_synthesize(request):
+    skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
+    text = _text(request)
+    parameters = _parameters(request)
+    res_id = parameters.get('resId')
+    output_format = parameters.get('format', 'mp3')
+    volume = parameters.get('volume', 50)
+    speed = parameters.get('speed', 50)
+    pitch = parameters.get('pitch', 50)
+    sample_rate = parameters.get('sampleRate', 24000)
+    if not isinstance(res_id, str) or not res_id or len(res_id) > 256 or output_format not in ('mp3', 'pcm', 'speex', 'opus'):
+        raise BridgeError('INVALID_INPUT')
+    if any(type(value) is not int or value < 0 or value > 100 for value in (volume, speed, pitch)):
+        raise BridgeError('INVALID_INPUT')
+    if type(sample_rate) is not int or sample_rate not in (8000, 16000, 24000):
+        raise BridgeError('INVALID_INPUT')
+    output = Path(os.environ.get('TMP', '')) / ('voice-clone.' + output_format)
+    args = SimpleNamespace(format=output_format, volume=volume, speed=speed, pitch=pitch, sample_rate=sample_rate)
+    try:
+        audio = skill.VoiceCloneSynthesizer(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET'], res_id, args
+        ).synthesize(text)
+        if not isinstance(audio, bytes) or not audio:
+            raise BridgeError('INVALID_ARTIFACT')
+        output.write_bytes(audio)
+    except BridgeError:
+        raise
+    except Exception as error:
+        raise BridgeError('UPSTREAM_ERROR') from error
+    mime_types = {'mp3': 'audio/mpeg', 'pcm': 'audio/L16', 'speex': 'audio/speex', 'opus': 'audio/opus'}
+    return {'resId': res_id, 'format': output_format, 'bytes': len(audio)}, [{
+        'relativePath': output.name, 'fileName': output.name, 'mimeType': mime_types[output_format],
+    }]
+
+
 def synthesize(request):
     skill = load_packaged_module('skills/iflytek-hyper-tts/scripts/xfei_hyper_tts.py')
     text = _text(request)
@@ -467,6 +694,16 @@ OPERATIONS = {
     ('iflytek-speed-transcription', 'getTask'): get_transcription_task,
     ('iflytek-speed-transcription', 'getResult'): get_transcription_result,
     ('iflytek-image-understanding', 'analyze'): analyze_image,
+    ('iflytek-video-translate', 'createTask'): video_create_task,
+    ('iflytek-video-translate', 'listTasks'): video_list_tasks,
+    ('iflytek-video-translate', 'getTask'): video_get_task,
+    ('iflytek-video-translate', 'confirmTranscript'): video_confirm_transcript,
+    ('iflytek-voiceclone-tts', 'getTrainingText'): voice_get_training_text,
+    ('iflytek-voiceclone-tts', 'createTraining'): voice_create_training,
+    ('iflytek-voiceclone-tts', 'uploadSample'): voice_upload_sample,
+    ('iflytek-voiceclone-tts', 'submitTraining'): voice_submit_training,
+    ('iflytek-voiceclone-tts', 'getTraining'): voice_get_training,
+    ('iflytek-voiceclone-tts', 'synthesize'): voice_synthesize,
 }
 
 

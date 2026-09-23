@@ -41,3 +41,29 @@ This entry describes the scaffold and credential/catalog preparation delivered b
 ### Scope
 
 - The four nodes use the shared `iflyApi` credential definition. Other Skills remain unregistered and are outside this change.
+
+## Foundational OCR, transcription, and image understanding nodes
+
+### Added
+
+- Registered n8n nodes for PDF/image OCR, speed transcription, and image understanding.
+- Added bridge operations for image recognition, PDF task creation/status/result retrieval, audio transcription task creation/status/result retrieval, and image analysis.
+- Added operation-specific credential requirements and binary input mappings for image, PDF, and audio workflows.
+- Added adapter and node coverage for the new operations, including task results and cleanup behavior.
+
+### Scope
+
+- These nodes use the shared `iflyApi` credential definition and remain part of the development package; other Skills and production publication are outside this change.
+
+## Video translation and voice cloning node integration
+
+### Added
+
+- Added n8n node classes for video translation task creation, listing, lookup, and transcript confirmation.
+- Added n8n node classes for voice-clone training text retrieval, training lifecycle management, sample upload, and synthesis.
+- Added bridge operation registrations with operation-specific credential requirements and supported audio artifact MIME types.
+- Extended adapter, node metadata, and package registration coverage for the two Skills.
+
+### Scope
+
+- Video translation accepts public video URLs and voice cloning accepts binary or public audio inputs according to each operation; both use the shared `iflyApi` credential. Contract review and Animated Sketch Diagram remain outside the enabled node set.

@@ -21,8 +21,18 @@
 | `IflySpeedTranscription` | `getTask` | 转写 `taskId` | 当前状态及原始响应 |
 | `IflySpeedTranscription` | `getResult` | 转写 `taskId` | `data.text`、分段、状态和原始响应 |
 | `IflyImageUnderstanding` | `analyze` | 图片 binary、问题和模型参数 | `data.text` |
+| `IflyVideoTranslate` | `createTask` | 公开视频 HTTP(S) URL、源语言、目标语言 | `data.result` 中的任务信息 |
+| `IflyVideoTranslate` | `listTasks` | 无业务输入 | `data.result` 中的任务列表 |
+| `IflyVideoTranslate` | `getTask` | 视频翻译 `taskId` | `data.taskId` 及任务详情 |
+| `IflyVideoTranslate` | `confirmTranscript` | 视频翻译 `taskId`、是否强制重跑 | `data.result` 中的确认结果 |
+| `IflyVoicecloneTts` | `getTrainingText` | 训练文本集 ID | `data.result` 中的文本片段 |
+| `IflyVoicecloneTts` | `createTraining` | 任务名称、性别、引擎和语言 | `data.result` 中的训练任务 |
+| `IflyVoicecloneTts` | `uploadSample` | 训练任务 ID、音频 binary 或 URL、文本片段 | `data.result` 中的上传结果 |
+| `IflyVoicecloneTts` | `submitTraining` | 训练任务 ID | `data.result` 中的提交结果 |
+| `IflyVoicecloneTts` | `getTraining` | 训练任务 ID | 状态、资源 ID 和原始响应 |
+| `IflyVoicecloneTts` | `synthesize` | 文本、克隆资源 ID 和声音参数 | `binary.audio` 及合成信息 |
 
-当前共 7 个节点、13 个操作。视频翻译、声音克隆、合同审核和 Animated Sketch Diagram 没有注册为可执行节点：前两项尚未接入 bridge，合同审核仍缺少完整的内部客户端，Animated Sketch Diagram 需要未随包分发的渲染资源及浏览器/ffmpeg 依赖。票据 OCR 与通用 PDF/图片 OCR 是两个独立节点，不能互相替代。
+当前共 9 个节点、23 个操作。合同审核和 Animated Sketch Diagram 没有注册为可执行节点：合同审核仍缺少完整的内部客户端，Animated Sketch Diagram 需要未随包分发的渲染资源及浏览器/ffmpeg 依赖。票据 OCR 与通用 PDF/图片 OCR 是两个独立节点，不能互相替代。
 
 ## 运行结构
 
@@ -50,7 +60,7 @@ n8n node
 | `apiKey` | `IFLY_API_KEY` |
 | `apiSecret` | `IFLY_API_SECRET` |
 
-翻译、校对、票据 OCR、Hyper TTS、图片 OCR、极速转写和图片理解使用完整三元组。PDF OCR 的创建和查询只需要 `appId` 与 `apiSecret`；执行层不会为该操作额外要求 `apiKey`。`listVoices` 不需要凭证，也不能用来验证账户权限或真实合成能力。子进程不会继承主机中的 `XFEI_*`、`XFYUN_*`、`PYTHONPATH`、`NODE_OPTIONS` 或其他未列入白名单的变量。
+翻译、校对、票据 OCR、Hyper TTS、图片 OCR、极速转写、图片理解和声音克隆合成使用完整三元组。PDF OCR 的创建和查询只需要 `appId` 与 `apiSecret`；视频翻译只需要 `apiKey` 与 `apiSecret`；声音克隆训练只需要 `appId` 与 `apiKey`。执行层按操作注入凭证，不会将无关字段传给子进程。`listVoices` 不需要凭证，也不能用来验证账户权限或真实合成能力。子进程不会继承主机中的 `XFEI_*`、`XFYUN_*`、`PYTHONPATH`、`NODE_OPTIONS` 或其他未列入白名单的变量。
 
 管理员需要在 n8n 进程环境中配置 Python 解释器的绝对路径：
 
@@ -69,6 +79,8 @@ Linux/macOS 使用对应的 `/absolute/venv/bin/python` 路径。Python 依赖�
 - PDF `getPdfTask` 与 `getResult` 都查询任务状态。完成状态为 `FINISH` 或 `ANY_FAILED` 时，`getResult` 返回完成标记；下载地址仍由服务响应提供，节点不会擅自下载或改写外部文件。
 - Hyper TTS 合成输出默认写入 `binary.audio`，文件名为 `speech.mp3`；`listVoices` 只读取随包的常量。
 - 图片理解支持 `general`/`imagev3`、`temperature` `(0, 1]` 和 `maxTokens` `1..8192`。原始 WebSocket 帧不会暴露给 n8n。
+- 视频翻译使用公开视频 URL，不在节点内上传本地视频；`confirmTranscript` 单独执行确认，并通过 `forceRerun` 明确控制后续重跑，不自动重试任务提交。
+- 声音克隆训练拆分为获取训练文本、创建任务、上传样本、提交和查询状态；上传样本可使用 binary 或公开 URL，二者必须二选一。合成需要已训练的 `resId`，输出支持 MP3、PCM、Speex 和 Opus。
 
 ## 安装、构建与打包
 

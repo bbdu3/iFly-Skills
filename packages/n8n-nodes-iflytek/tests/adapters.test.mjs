@@ -84,6 +84,44 @@ def run_understanding(app_id, api_key, api_secret, messages, domain, temperature
     assert messages[0]['content'] == 'base64-image'
     return 'a generated description'
 `,
+  'iflytek-video-translate/scripts/xfei_video_translate.py': `class XfeiVideoTranslateClient:
+    def __init__(self, api_key, api_secret):
+        assert (api_key, api_secret) == ('video-key', 'video-secret')
+    def create_task(self, file_url, src_lang, dest_lang, task_name=None):
+        assert file_url == 'https://example.invalid/video.mp4'
+        return {'taskId': 'video-task-1', 'source': src_lang, 'target': dest_lang, 'name': task_name}
+    def list_tasks(self):
+        return {'tasks': [{'taskId': 'video-task-1'}]}
+    def get_task(self, task_id):
+        assert task_id == 'video-task-1'
+        return {'taskId': task_id, 'status': 'DONE'}
+    def confirm_transcript(self, task_id, force_rerun=False):
+        return {'taskId': task_id, 'confirmed': True, 'forceRerun': force_rerun}
+`,
+  'iflytek-voiceclone-tts/scripts/voiceclone.py': `class TrainClient:
+    def __init__(self, app_id, api_key):
+        assert (app_id, api_key) == ('voice-app', 'voice-key')
+    def get_training_text(self, text_id):
+        return {'data': {'textId': text_id, 'textSegs': [{'segId': 1}]}}
+    def create_task(self, **kwargs):
+        assert kwargs['sex'] == 2
+        return {'data': 901}
+    def upload_audio_file(self, task_id, audio_path, text_id, seg_id):
+        assert str(audio_path).endswith('.wav')
+        return {'data': {'uploaded': True, 'taskId': task_id}}
+    def upload_audio_url(self, task_id, audio_url, text_id, seg_id):
+        return {'data': {'uploaded': True, 'url': audio_url}}
+    def submit_task(self, task_id):
+        return {'data': {'submitted': True, 'taskId': task_id}}
+    def get_task_status(self, task_id):
+        return {'data': {'trainStatus': 1, 'assetId': 'res-1'}}
+class VoiceCloneSynthesizer:
+    def __init__(self, app_id, api_key, api_secret, res_id, args):
+        assert (app_id, api_key, api_secret, res_id, args.format) == ('voice-app', 'voice-key', 'voice-secret', 'res-1', 'mp3')
+    def synthesize(self, text):
+        assert text == 'hello clone'
+        return b'fake-clone-mp3'
+`,
 };
 
 async function fixture(t) {
@@ -175,5 +213,34 @@ test('packaged bridge adapters map text, binary, invoice, TTS, and local voices'
     parameters: { question: 'What is shown?', domain: 'general', temperature: 0.4, maxTokens: 128 }, credentials,
   }, consume);
   assert.equal(understanding.result.data.text, 'a generated description');
+
+  const videoCredentials = { appId: 'unused', apiKey: 'video-key', apiSecret: 'video-secret' };
+  const videoCreate = await runner.run({
+    skill: 'iflytek-video-translate', operation: 'createTask',
+    parameters: { fileUrl: 'https://example.invalid/video.mp4', sourceLanguage: 'en', targetLanguage: 'zh', taskName: 'demo' },
+    credentials: videoCredentials,
+  }, consume);
+  assert.equal(videoCreate.result.data.result.taskId, 'video-task-1');
+  const videoList = await runner.run({ skill: 'iflytek-video-translate', operation: 'listTasks', input: {}, parameters: {}, credentials: videoCredentials }, consume);
+  assert.equal(videoList.result.data.result.tasks.length, 1);
+  const videoTask = await runner.run({ skill: 'iflytek-video-translate', operation: 'getTask', parameters: { taskId: 'video-task-1' }, credentials: videoCredentials }, consume);
+  assert.equal(videoTask.result.data.result.status, 'DONE');
+  const confirmed = await runner.run({ skill: 'iflytek-video-translate', operation: 'confirmTranscript', parameters: { taskId: 'video-task-1', forceRerun: true }, credentials: videoCredentials }, consume);
+  assert.equal(confirmed.result.data.forceRerun, true);
+
+  const voiceTrainingCredentials = { appId: 'voice-app', apiKey: 'voice-key' };
+  const trainingText = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'getTrainingText', parameters: { textId: 5001 }, credentials: voiceTrainingCredentials }, consume);
+  assert.equal(trainingText.result.data.result.data.textId, 5001);
+  const training = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'createTraining', parameters: { name: 'demo', sex: 'female', engine: 'omni_v1', language: 'cn' }, credentials: voiceTrainingCredentials }, consume);
+  assert.equal(training.result.data.result.data, 901);
+  const upload = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'uploadSample', parameters: { taskId: 901, textId: 5001, segmentId: 1, audioFormat: 'wav' }, files: { audio: { data: Buffer.from('fake wav') } }, credentials: voiceTrainingCredentials }, consume);
+  assert.equal(upload.result.data.result.data.uploaded, true);
+  const submitted = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'submitTraining', parameters: { taskId: 901 }, credentials: voiceTrainingCredentials }, consume);
+  assert.equal(submitted.result.data.result.data.submitted, true);
+  const trained = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'getTraining', parameters: { taskId: 901 }, credentials: voiceTrainingCredentials }, consume);
+  assert.equal(trained.result.data.resourceId, 'res-1');
+  const clone = await runner.run({ skill: 'iflytek-voiceclone-tts', operation: 'synthesize', input: { text: 'hello clone' }, parameters: { resId: 'res-1', format: 'mp3' }, credentials: { appId: 'voice-app', apiKey: 'voice-key', apiSecret: 'voice-secret' } }, consume);
+  assert.equal(clone.files[0].mimeType, 'audio/mpeg');
+  assert.equal(clone.files[0].data.toString(), 'fake-clone-mp3');
   assert.deepEqual(await readdir(temporaryRoot), []);
 });
