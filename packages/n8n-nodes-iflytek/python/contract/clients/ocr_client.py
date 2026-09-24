@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from .iflytek import skill_module
+from skill_compat import image_ocr_client
 
 @dataclass
 class OCRResult:
@@ -20,7 +21,7 @@ class OCRClient:
         if Path(image_path).stat().st_size > 4 * 1024 * 1024:
             raise ValueError("OCR image exceeds 4 MiB")
         module = skill_module("ocr")
-        client = module.IflyImageOCRClient(self.config.app_id, self.config.api_key, self.config.api_secret)
+        client = image_ocr_client(module, self.config.app_id, self.config.api_key, self.config.api_secret)
         result = client.ocr(image_path, result_format="markdown")
         text = result.get("text")
         if not isinstance(text, str) or not text.strip():

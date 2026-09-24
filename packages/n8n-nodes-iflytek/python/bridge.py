@@ -14,6 +14,10 @@ BRIDGE_ROOT = Path(__file__).resolve().parent
 RUNTIME_ROOT = BRIDGE_ROOT.parent
 MAX_REQUEST_BYTES = 1024 * 1024
 
+# -I excludes the script directory; only fixed package code supplies adapters.
+sys.path.insert(0, str(BRIDGE_ROOT))
+import skill_compat
+
 
 class BridgeError(Exception):
     def __init__(self, code):
@@ -128,7 +132,7 @@ def proofread(request):
     text = _text(request)
     try:
         auth_url = skill._build_auth_url(skill.API_URL, os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET'])
-        response = skill._http_post(auth_url, skill._build_body(os.environ['IFLY_APP_ID'], text), os.environ['IFLY_APP_ID'])
+        response = skill_compat.proofread_post(skill, auth_url, skill._build_body(os.environ['IFLY_APP_ID'], text), os.environ['IFLY_APP_ID'])
         result = skill._parse_result(response)
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error
@@ -152,7 +156,9 @@ def recognize_invoice(request):
             result = extracted
     except BridgeError:
         raise
-    except Exception as error:
+    except (Exception, SystemExit) as error:
+        # The original CLI exits on HTTP/connection errors; keep node failures
+        # within the upstream error contract without changing the Skill.
         raise BridgeError('UPSTREAM_ERROR') from error
     if isinstance(result, str) and result.startswith(('API Error', 'Unexpected response')):
         raise BridgeError('UPSTREAM_ERROR')
@@ -259,7 +265,7 @@ def recognize_image(request):
         raise BridgeError('INVALID_INPUT')
     path = _image_input_path(files['image'])
     try:
-        result = skill.IflyImageOCRClient(
+        result = skill_compat.image_ocr_client(skill,
             os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
         ).ocr(path, result_format)
     except BridgeError:
@@ -356,7 +362,7 @@ def create_transcription_task(request):
     path = _audio_input_path(files['audio'])
     parameters = _transcription_parameters(_parameters(request))
     try:
-        client = skill.XfeiSpeedTranscription(
+        client = skill_compat.transcription_client(skill,
             os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
         )
         if Path(path).stat().st_size < 31457280:
@@ -375,7 +381,7 @@ def query_transcription_task(request, parse=False):
     skill = load_packaged_module('skills/iflytek-speed-transcription/scripts/transcribe.py')
     task_id = _task_no(request, 'taskId')
     try:
-        client = skill.XfeiSpeedTranscription(
+        client = skill_compat.transcription_client(skill,
             os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET']
         )
         raw = client.query_task(task_id)
@@ -418,7 +424,7 @@ def analyze_image(request):
             {'role': 'user', 'content': image, 'content_type': 'image'},
             {'role': 'user', 'content': question, 'content_type': 'text'},
         ]
-        result = skill.run_understanding(
+        result = skill_compat.run_understanding(skill,
             os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET'],
             messages, domain, float(temperature), max_tokens, False,
         )
@@ -651,9 +657,9 @@ def voice_synthesize(request):
     output = Path(os.environ.get('TMP', '')) / ('voice-clone.' + output_format)
     args = SimpleNamespace(format=output_format, volume=volume, speed=speed, pitch=pitch, sample_rate=sample_rate)
     try:
-        audio = skill.VoiceCloneSynthesizer(
-            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET'], res_id, args
-        ).synthesize(text)
+        client = skill.VoiceCloneSynthesizer(
+            os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET'], res_id, args)
+        audio = skill_compat.voice_synthesize(skill, client, text)
         if not isinstance(audio, bytes) or not audio:
             raise BridgeError('INVALID_ARTIFACT')
         output.write_bytes(audio)
@@ -685,7 +691,7 @@ def synthesize(request):
     output = Path(os.environ.get('TMP', '')) / 'speech.mp3'
     try:
         client = skill.XfeiHyperTTSClient(os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'], os.environ['IFLY_API_SECRET'])
-        result = client.synthesize(text=text, output_path=str(output), vcn=voice, speed=speed, volume=volume,
+        result = skill_compat.hyper_synthesize(skill, client, text=text, output_path=str(output), vcn=voice, speed=speed, volume=volume,
                                    pitch=pitch, encoding='lame', sample_rate=sample_rate, role=role)
     except Exception as error:
         raise BridgeError('UPSTREAM_ERROR') from error

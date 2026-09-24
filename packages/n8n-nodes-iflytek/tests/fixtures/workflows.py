@@ -217,7 +217,7 @@ class Workflows(unittest.TestCase):
             with self.assertRaises(bridge.BridgeError) as caught:
                 bridge.review_contract(self.request(params, input))
             self.assertEqual(caught.exception.code, "INVALID_INPUT")
-        from processors.report_builder import ReportBuilder
+        from contract.report import ReportBuilder
         result = {'risks': [{'level': 'high'}]}
         self.assertEqual(ReportBuilder.generate_summary(result), ReportBuilder().generate_summary(result))
         self.assertIn('1', ReportBuilder.generate_summary(result))

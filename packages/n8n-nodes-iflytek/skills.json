@@ -97,7 +97,7 @@
       "operations": ["renderHtmlToGif"],
       "runtimeFiles": [
         "scripts/render-gif.mjs",
-        "assets/fonts/Kalam-400.woff2", "assets/fonts/Kalam-OFL.txt", "LICENSE"
+        "assets/fonts/Kalam-400.woff2"
       ]
     }
   ]

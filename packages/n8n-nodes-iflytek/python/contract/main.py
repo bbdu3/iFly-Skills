@@ -13,7 +13,7 @@ from processors.clause_splitter import ClauseSplitter
 from processors.risk_detector import RiskDetector
 from processors.compliance_checker import ComplianceChecker
 from processors.bilingual_checker import BilingualChecker
-from processors.report_builder import ReportBuilder
+from .report import ReportBuilder
 from utils.file_utils import load_input_file
 
 

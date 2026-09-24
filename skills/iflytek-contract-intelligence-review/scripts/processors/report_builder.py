@@ -19,8 +19,7 @@ class ReportBuilder(LoggerMixin):
     def __init__(self):
         self.template_vars = {}
 
-    @staticmethod
-    def generate_summary(result: Dict[str, Any]) -> str:
+    def generate_summary(self, result: Dict[str, Any]) -> str:
         """
         生成审核摘要
 
@@ -107,9 +106,7 @@ class ReportBuilder(LoggerMixin):
         lines.append("## 输入质量评估")
         lines.append("")
         lines.append(f"- **文本长度**: {extraction.get('text_length', 0)} 字符")
-        confidence = extraction.get('confidence')
-        confidence_text = f"{confidence:.0%}" if isinstance(confidence, (int, float)) else "未提供；请核对原文"
-        lines.append(f"- **识别置信度**: {confidence_text}")
+        lines.append(f"- **识别置信度**: {extraction.get('confidence', 0):.0%}")
         uncertain_regions = extraction.get("uncertain_regions", [])
         if uncertain_regions:
             lines.append(f"- **识别不确定区域**: {len(uncertain_regions)} 处")
@@ -266,3 +263,9 @@ class ReportBuilder(LoggerMixin):
         }
 
         return json.dumps(output, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def generate_summary(result: Dict[str, Any]) -> str:
+        """静态方法：生成摘要"""
+        builder = ReportBuilder()
+        return builder.generate_summary(result)

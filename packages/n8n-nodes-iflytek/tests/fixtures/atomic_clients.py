@@ -3,12 +3,14 @@ import base64
 import hashlib
 import hmac
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
+import types
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
@@ -62,11 +64,23 @@ class AtomicClients(unittest.TestCase):
             'TMP': str(self.root), 'IFLY_APP_ID': 'app', 'IFLY_API_KEY': 'key', 'IFLY_API_SECRET': 'secret'}))
         self.stack.enter_context(patch('socket.socket.connect', side_effect=AssertionError('Unexpected network')))
         self.modules = {}
+        self.original_definitions = []
         self.stack.enter_context(patch.object(bridge, 'load_packaged_module', side_effect=self.module))
     def module(self, name):
         if name not in self.modules:
-            self.modules[name] = load_module(name)
+            module = load_module(name)
+            self.modules[name] = module
+            for key, value in vars(module).items():
+                if isinstance(value, (types.FunctionType, type)):
+                    self.original_definitions.append((module, key, value))
+                    if isinstance(value, type) and value.__module__ == module.__name__:
+                        for member, definition in vars(value).items():
+                            if isinstance(definition, types.FunctionType):
+                                self.original_definitions.append((value, member, definition))
         return self.modules[name]
+    def tearDown(self):
+        for owner, name, definition in self.original_definitions:
+            self.assertIs(getattr(owner, name), definition, f'Adapter changed original {name}')
     def client(self, skill, script):
         return self.module(f'skills/{skill}/scripts/{script}.py')
     def request(self, parameters=None, text='hello', files=None):
@@ -167,6 +181,19 @@ class AtomicClients(unittest.TestCase):
         with patch.object(module.urllib.request, 'urlopen', side_effect=http):
             self.assertEqual(bridge.recognize_invoice(request)[0]['result']['total'], 12)
 
+    def test_invoice_http_and_connection_errors_are_upstream_failures(self):
+        module = self.client('iflytek-ocr-invoice', 'invoice')
+        request = self.request(files={'image': self.file('invoice', b'%PDF-1.7 test')})
+        failures = [
+            module.urllib.error.HTTPError('https://example.invalid/invoice', 500, 'server error',
+                                          None, io.BytesIO(b'{"header":{"code":11201}}')),
+            module.urllib.error.URLError('connection failed'),
+        ]
+        for failure in failures:
+            with self.subTest(type=type(failure).__name__), redirect_stderr(io.StringIO()), \
+                    patch.object(module.urllib.request, 'urlopen', side_effect=failure):
+                self.failed(lambda: bridge.recognize_invoice(request))
+
     def test_hyper_tts_final_frame_required_and_no_temporary_output_path(self):
         module = self.client('iflytek-hyper-tts', 'xfei_hyper_tts')
         for status in [1, 2]:
@@ -217,7 +244,7 @@ class AtomicClients(unittest.TestCase):
 
     def test_transcription_exact_multiple_chunk_upload_retains_final_bytes(self):
         module = self.client('iflytek-speed-transcription', 'transcribe')
-        client = module.XfeiSpeedTranscription('app', 'key', 'secret')
+        client = bridge.skill_compat.transcription_client(module, 'app', 'key', 'secret')
         client.chunk_size = 4
         chunks = []
         def post(url, **kwargs):
@@ -287,31 +314,32 @@ class AtomicClients(unittest.TestCase):
 
     def test_voice_synthesis_requires_final_audio_and_closes_transport(self):
         module = self.client('iflytek-voiceclone-tts', 'voiceclone')
+        import websocket
         for status in [1, 2]:
-            sockets = []
-            class Transport:
-                def __init__(self, url, **callbacks):
-                    self.callbacks = callbacks
-                    self.closed = False
-                    sockets.append(self)
-                def connect(self):
-                    self.callbacks['on_open'](self)
-                    self.callbacks['on_message'](self, json.dumps({'header': {'code': 0}, 'payload': {
-                        'audio': {'status': status, 'audio': encoded('clone')}}}))
-                    self.callbacks['on_close'](self)
-                def send(self, data):
-                    self.request = json.loads(data)
-                def close(self):
-                    self.closed = True
-            with patch.object(module, 'SimpleWebSocket', Transport):
+            socket = Socket(status)
+            with patch.object(websocket, 'create_connection', return_value=socket) as connect, \
+                    patch.object(module, 'SimpleWebSocket', side_effect=AssertionError('Legacy insecure transport must not run')):
                 request = self.request({'resId': 'resource'})
                 if status == 1:
                     self.failed(lambda: bridge.voice_synthesize(request))
                 else:
                     data, artifacts = bridge.voice_synthesize(request)
-                    self.assertEqual(data['bytes'], 5)
-                    self.assertEqual((self.root / artifacts[0]['relativePath']).read_bytes(), b'clone')
-            self.assertTrue(sockets[0].closed)
+                    self.assertEqual(data['bytes'], len(b'audio bytes'))
+                    self.assertEqual((self.root / artifacts[0]['relativePath']).read_bytes(), b'audio bytes')
+                self.signature(connect.call_args.args[0], 'GET')
+                self.assertNotIn('sslopt', connect.call_args.kwargs)
+                self.assertEqual(socket.request['header']['res_id'], 'resource')
+            self.assertTrue(socket.closed)
+
+    def test_voice_transport_errors_close_without_writing_audio(self):
+        self.client('iflytek-voiceclone-tts', 'voiceclone')
+        import websocket
+        for error in [TimeoutError('timeout'), ConnectionError('disconnected')]:
+            socket = Socket(1)
+            with patch.object(socket, 'recv', side_effect=error), patch.object(websocket, 'create_connection', return_value=socket):
+                self.failed(lambda: bridge.voice_synthesize(self.request({'resId': 'resource'})))
+            self.assertTrue(socket.closed)
+            self.assertFalse((self.root / 'voice-clone.mp3').exists())
 
 
 if __name__ == '__main__':

@@ -62,9 +62,11 @@ test('catalog bundles all repository skills with explicit runtime resources', as
   assert.equal(new Set(catalog.skills.map(({ nodeName }) => nodeName)).size, 11);
   assert.equal(catalog.skills.filter(({ runtimeFiles }) => runtimeFiles.length > 0).length, 11);
   const sketch = catalog.skills.find(({ id }) => id === 'animated-sketch-diagram');
-  for (const file of ['scripts/render-gif.mjs', 'assets/fonts/Kalam-400.woff2', 'assets/fonts/Kalam-OFL.txt', 'LICENSE']) {
+  for (const file of ['scripts/render-gif.mjs', 'assets/fonts/Kalam-400.woff2']) {
     assert.ok(sketch.runtimeFiles.includes(file));
   }
+  assert.ok(bridgeFiles.includes('diagram/licenses/animated-sketch-diagram-MIT.txt'));
+  assert.ok(bridgeFiles.includes('diagram/licenses/Kalam-OFL.txt'));
   for (const skill of catalog.skills) {
     assert.equal(skill.credential, skill.id === 'animated-sketch-diagram' ? null : 'iflyApi');
     assert.equal(skill.deferredReason, undefined);

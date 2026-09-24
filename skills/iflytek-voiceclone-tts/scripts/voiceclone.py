@@ -79,6 +79,8 @@ class SimpleWebSocket:
         raw = socket.create_connection((host, port), timeout=30)
         if parsed.scheme == "wss":
             ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
             self._sock = ctx.wrap_socket(raw, server_hostname=host)
         else:
             self._sock = raw
@@ -327,7 +329,7 @@ class TrainClient:
     def upload_audio_file(
         self, task_id: int, audio_path: str, text_id: int = 5001, seg_id: int = 1
     ) -> dict:
-        """Upload local audio and submit training using multipart form."""
+        """Upload local audio file to a training task using multipart form."""
         self._ensure_token()
 
         if not os.path.exists(audio_path):
@@ -450,7 +452,6 @@ class VoiceCloneSynthesizer:
         self.error = None
         self.sid = None
         self.done = threading.Event()
-        self.completed = False
 
     def _build_request(self, text: str) -> dict:
         a = self.args
@@ -518,7 +519,6 @@ class VoiceCloneSynthesizer:
                     self.audio_chunks.append(base64.b64decode(audio_data))
                 status = msg["payload"]["audio"].get("status", 0)
                 if status == 2:
-                    self.completed = True
                     ws.close()
         except Exception as e:
             self.error = f"Parse error: {e}"
@@ -548,7 +548,6 @@ class VoiceCloneSynthesizer:
         self.audio_chunks = []
         self.error = None
         self.done.clear()
-        self.completed = False
 
         auth_url = build_ws_auth_url(TTS_WS_URL, self.api_key, self.api_secret)
 
@@ -560,29 +559,15 @@ class VoiceCloneSynthesizer:
             on_open=self._on_open,
         )
 
-        def connect():
-            try:
-                ws.connect()
-            except Exception as error:
-                self._on_error(ws, error)
-            finally:
-                ws.close()
-                self._on_close(ws)
-
-        ws_thread = threading.Thread(target=connect, daemon=True)
+        ws_thread = threading.Thread(target=ws.connect, daemon=True)
         ws_thread.start()
 
-        try:
-            if not self.done.wait(timeout=120):
-                raise TimeoutError("Voice synthesis deadline exceeded")
-            if self.error:
-                raise RuntimeError(self.error)
-            if not self.completed:
-                raise RuntimeError("Voice stream ended without a final audio frame")
-            return b"".join(self.audio_chunks)
-        finally:
-            ws.close()
-            ws_thread.join(timeout=1)
+        self.done.wait(timeout=120)
+
+        if self.error:
+            raise RuntimeError(self.error)
+
+        return b"".join(self.audio_chunks)
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────

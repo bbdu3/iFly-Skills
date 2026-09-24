@@ -74,21 +74,23 @@ This entry describes the scaffold and credential/catalog preparation delivered b
 
 - Registered `IflyContractReview` and `IflyAnimatedSketch`, bringing the package to 11 nodes and 25 operations.
 - Added package-owned contract adapters using shared `IFLY_*` credentials, existing Skill processors and API clients, bounded PDF/DOCX extraction, and Markdown/JSON reports. Preserved the original contract CLI, configuration, and client interfaces.
-- Added a credential-free package-owned wrapper for restricted HTML/SVG/CSS-to-GIF rendering through the original Skill renderer, Playwright Core, administrator-installed Chromium, and ffmpeg.
+- Added a credential-free package-owned renderer that adapts the original Skill's CSS frame capture and GIF assembly sequence using Playwright Core, administrator-installed Chromium, and ffmpeg.
 - Bundled the required workflow modules, diagram template, Kalam font and license notices, and a full Python dependency lock.
 - Added execution coverage for all 11 nodes and 25 operations, real Skill clients with offline transports, and opt-in real GIF decoding, cancellation, and n8n binary integration tests.
 
 ### Fixed
 
-- Corrected contract report summary recursion and handling of unavailable confidence values; the package adapter identifies model inference and local rule checks separately.
-- Corrected the shared image OCR client's signing hostname to exclude the request path.
+- Added package-level compatibility for contract report summary recursion and unavailable confidence values; the adapter identifies model inference and local rule checks separately.
+- Corrected image OCR signing within the package adapter so the hostname excludes the request path.
 - Fixed PDF binary path conversion, text/URL input precedence, operation validation, and temporary output paths in node results.
 - Clarified that binary voice sample upload also submits training, added explicit confirmation, and rejected training and proofreading business errors.
-- Corrected the transcription digest prefix and final chunk size; rejected incomplete synthesis/image streams and preserved TLS verification for voice synthesis.
-- Aligned the proofreading HTTP Host header with the signed endpoint.
-- Ensured renderer frame cleanup also runs when browser startup or shutdown fails.
+- Added package-level compatibility for the transcription digest prefix and final chunk size, incomplete synthesis/image streams, and TLS-verified voice synthesis.
+- Aligned the package's proofreading HTTP Host header with the signed endpoint.
+- Mapped invoice CLI exits caused by HTTP or connection failures to the node's controlled upstream error.
+- Ensured package renderer frame cleanup also runs when browser startup or shutdown fails.
 
 ### Scope
 
 - Contract results require human review; live service permissions and review quality have not been validated.
 - Diagram rendering accepts existing restricted HTML and does not implement prompt-based generation. The development package remains unpublished.
+- Restored all files under `skills/` to the integration baseline. Compatibility code and license notices reside in the n8n package; original Skill files are bundled without rewriting their contents.

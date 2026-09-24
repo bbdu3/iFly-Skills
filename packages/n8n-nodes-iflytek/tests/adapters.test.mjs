@@ -133,6 +133,16 @@ async function fixture(t) {
   await mkdir(temporaryRoot);
   await cp(path.join(packageRoot, 'runtime/bridge/bridge.py'), path.join(runtimeRoot, 'bridge/bridge.py'));
   await cp(path.join(packageRoot, 'runtime/bridge/operations.json'), path.join(runtimeRoot, 'bridge/operations.json'));
+  // This fixture isolates bridge field mapping. Real compatibility behavior is
+  // covered separately by atomic-clients.test.mjs against the staged Skill files.
+  await writeFile(path.join(runtimeRoot, 'bridge/skill_compat.py'), `
+def image_ocr_client(module, *args): return module.IflyImageOCRClient(*args)
+def transcription_client(module, *args): return module.XfeiSpeedTranscription(*args)
+def proofread_post(module, *args): return module._http_post(*args)
+def hyper_synthesize(module, client, **kwargs): return client.synthesize(**kwargs)
+def run_understanding(module, *args, **kwargs): return module.run_understanding(*args, **kwargs)
+def voice_synthesize(module, client, text): return client.synthesize(text)
+`);
   for (const [relative, source] of Object.entries(fakeScripts)) {
     const target = path.join(runtimeRoot, 'skills', relative);
     await mkdir(path.dirname(target), { recursive: true });

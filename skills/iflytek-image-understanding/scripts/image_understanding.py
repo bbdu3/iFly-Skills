@@ -377,7 +377,6 @@ def run_understanding(app_id: str, api_key: str, api_secret: str,
     frames = ws_communicate(auth_url, request_data)
 
     full_text = ""
-    completed = False
     for f in frames:
         if raw:
             print(f)
@@ -401,7 +400,6 @@ def run_understanding(app_id: str, api_key: str, api_secret: str,
 
         # Print usage info on last frame
         if choices.get("status") == 2:
-            completed = True
             usage = data.get("payload", {}).get("usage", {}).get("text", {})
             if usage:
                 print(
@@ -411,8 +409,6 @@ def run_understanding(app_id: str, api_key: str, api_secret: str,
                     file=sys.stderr,
                 )
 
-    if not completed:
-        raise ConnectionError("Image understanding stream ended without a final result")
     return full_text
 
 

@@ -52,7 +52,9 @@ n8n node
 
 Node 负责表单、凭证与 binary 映射，bridge 负责参数校验和结果适配。合同 Skill 的服务客户端原为待实现接口；包内 `python/contract/` 补齐这些服务适配，复用原 Skill 的文本清洗、条款、风险、合规、双语检查和报告处理器，以及现有 OCR、翻译和图片理解脚本。原合同 CLI、配置和客户端接口保持原有职责。
 
-手绘图的 Python 包装器和受限渲染配置位于包内 `python/diagram/`，调用原 Skill 导出的 `renderGif`；原渲染 CLI 保留默认参数和可信本地 HTML 的使用方式。Playwright、浏览器与 ffmpeg 子进程沿用调用的临时目录和进程树取消机制。Skill 源码改动限于复用入口及已确认的签名、分片、流结束判定和报告缺陷修正；n8n 专用限制和字段不写入原 Skill 接口。
+原 Skill 源码保持不变。`python/skill_compat.py` 通过子类或调用时的局部包装处理签名、分片和流结束判定；合同报告兼容处理位于 `python/contract/report.py`。这些适配不重写原脚本文件，也不替换原模块中的函数或类。
+
+原手绘图渲染器是直接执行的 CLI，没有可导入的函数入口。包内 `python/diagram/` 沿用其 CSS 逐帧截图与 ffmpeg 合成方式，提供独立的受限渲染入口，复用原 Skill 的字体资源。原 CLI 保持不变；n8n 调用的 Playwright、浏览器与 ffmpeg 子进程沿用临时目录和进程树取消机制。
 
 请求协议使用版本 `1`，包含 `requestId`、`input` 和 `parameters`。成功结果包含 `ok: true`、`status: succeeded`、`data`、`artifacts` 和执行耗时；节点输出会保留 `pairedItem`。默认错误会终止当前节点，开启 n8n 的 continue-on-fail 后才会按 item 写入 `json.error`。
 
@@ -185,4 +187,4 @@ git diff --check
 
 ## 许可
 
-本包使用 Apache-2.0 许可证，详见 [LICENSE](LICENSE)。随包手绘图 Skill 的上游代码使用 MIT，Kalam 字体使用 SIL OFL 1.1；对应许可文件与字体一同保存在 runtime 的 Skill 目录。Playwright Core 使用 Apache-2.0；浏览器和 ffmpeg 由管理员按各自许可安装。
+本包使用 Apache-2.0 许可证，详见 [LICENSE](LICENSE)。手绘图渲染适配保留上游 MIT 许可，Kalam 字体使用 SIL OFL 1.1；许可文件位于 `python/diagram/licenses/`，打包后位于 `runtime/bridge/diagram/licenses/`，字体仍来自 runtime 的原 Skill 目录。Playwright Core 使用 Apache-2.0；浏览器和 ffmpeg 由管理员按各自许可安装。
