@@ -12,6 +12,37 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 from types import FunctionType, SimpleNamespace
 from urllib.parse import urlencode, urlsplit
+import urllib.request
+
+
+class _NoTrainingRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Signed headers and audio must never follow a redirect to another endpoint.
+        raise RuntimeError('Voice training redirects are not allowed')
+
+
+def voice_training_client(module, app_id, api_key):
+    # Keep the Skill's signing, bodies and parsing, but use verified HTTPS only.
+    # A private opener avoids changing urllib's process-wide configuration.
+    opener = urllib.request.build_opener(_NoTrainingRedirect())
+    overrides = {
+        'AUTH_TOKEN_URL': 'https://avatar-hci.xfyousheng.com/aiauth/v1/token',
+        'TRAIN_BASE_URL': 'https://opentrain.xfyousheng.com/voice_train',
+        'urllib': SimpleNamespace(request=SimpleNamespace(
+            Request=urllib.request.Request, urlopen=opener.open)),
+    }
+
+    class Training(module.TrainClient):
+        def _get_token(self):
+            return _call_with_globals(module.TrainClient._get_token, overrides, self)
+
+        def _post(self, path, body):
+            return _call_with_globals(module.TrainClient._post, overrides, self, path, body)
+
+        def upload_audio_file(self, *args, **kwargs):
+            return _call_with_globals(module.TrainClient.upload_audio_file, overrides, self, *args, **kwargs)
+
+    return Training(app_id, api_key)
 
 
 def _call_with_globals(function, overrides, *args, **kwargs):
@@ -45,9 +76,21 @@ def proofread_post(module, url, body, app_id):
 
 def transcription_client(module, app_id, api_key, api_secret):
     class Transcription(module.XfeiSpeedTranscription):
-        def _hashlib_256(self, data):
-            # The original auth builder adds SHA-256= itself.
-            return base64.b64encode(hashlib.sha256(data.encode()).digest()).decode()
+        def _assemble_auth_header(self, requset_url, file_data_type, method='POST', body=''):
+            # Sign the actual JSON or multipart bytes, independently of the
+            # upstream helper's historical digest-prefix convention.
+            endpoint = urlsplit(requset_url)
+            date = format_datetime(datetime.now(timezone.utc), usegmt=True)
+            body_bytes = body.encode('utf-8') if isinstance(body, str) else body
+            digest = 'SHA-256=' + base64.b64encode(hashlib.sha256(body_bytes).digest()).decode()
+            origin = f'host: {endpoint.hostname}\ndate: {date}\n{method} {endpoint.path} HTTP/1.1\ndigest: {digest}'
+            signature = base64.b64encode(hmac.new(self.api_secret.encode(), origin.encode(), hashlib.sha256).digest()).decode()
+            return {
+                'host': endpoint.hostname, 'date': date, 'digest': digest,
+                'content-type': file_data_type,
+                'authorization': (f'api_key="{self.api_key}", algorithm="hmac-sha256", '
+                                  f'headers="host date request-line digest", signature="{signature}"'),
+            }
 
         def upload_large_file(self, file_path):
             request_id = self._generate_request_id()

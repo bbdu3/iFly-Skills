@@ -34,6 +34,10 @@ class Response:
         self.value = value
     def json(self):
         return self.value
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import requests
+            raise requests.HTTPError(f'HTTP {self.status_code}')
     def read(self):
         return json.dumps(self.value).encode()
     def __enter__(self):
@@ -63,6 +67,7 @@ class AtomicClients(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             'TMP': str(self.root), 'IFLY_APP_ID': 'app', 'IFLY_API_KEY': 'key', 'IFLY_API_SECRET': 'secret'}))
         self.stack.enter_context(patch('socket.socket.connect', side_effect=AssertionError('Unexpected network')))
+        self.stack.enter_context(patch('socket.getaddrinfo', return_value=[(2, 1, 6, '', ('8.8.8.8', 443))]))
         self.modules = {}
         self.original_definitions = []
         self.stack.enter_context(patch.object(bridge, 'load_packaged_module', side_effect=self.module))
@@ -99,6 +104,17 @@ class AtomicClients(unittest.TestCase):
         origin = f"host: {parts.netloc}\ndate: {query['date'][0]}\n{method} {parts.path} HTTP/1.1"
         signature = base64.b64encode(hmac.new(b'secret', origin.encode(), hashlib.sha256).digest()).decode()
         self.assertIn(signature, base64.b64decode(query['authorization'][0]).decode())
+
+    def transcription_signature(self, url, headers, body):
+        data = body.encode('utf-8') if isinstance(body, str) else body
+        digest = 'SHA-256=' + base64.b64encode(hashlib.sha256(data).digest()).decode()
+        self.assertEqual(headers['digest'], digest)
+        endpoint = urlsplit(url)
+        self.assertEqual(headers['host'], endpoint.hostname)
+        origin = f"host: {endpoint.hostname}\ndate: {headers['date']}\nPOST {endpoint.path} HTTP/1.1\ndigest: {digest}"
+        signature = base64.b64encode(hmac.new(b'secret', origin.encode(), hashlib.sha256).digest()).decode()
+        self.assertEqual(headers['authorization'],
+                         f'api_key="key", algorithm="hmac-sha256", headers="host date request-line digest", signature="{signature}"')
 
     def test_image_ocr_real_signing_payload_and_error(self):
         module = self.client('iflytek-pdf-image-ocr', 'image_ocr')
@@ -223,11 +239,11 @@ class AtomicClients(unittest.TestCase):
                 else:
                     self.assertEqual(bridge.analyze_image(request)[0]['text'], 'description')
 
-    def test_transcription_real_upload_task_query_and_single_digest_prefix(self):
+    def test_transcription_real_upload_task_query_and_body_signature(self):
         module = self.client('iflytek-speed-transcription', 'transcribe')
         request = self.request(files={'audio': self.file('audio', b'MP3 input')})
         def post(url, **kwargs):
-            self.assertEqual(kwargs['headers']['digest'].count('SHA-256='), 1)
+            self.transcription_signature(url, kwargs['headers'], kwargs['data'])
             if url.endswith('/file/upload'):
                 return Response({'code': 0, 'data': {'url': 'https://example.invalid/a.mp3'}})
             body = json.loads(kwargs['data'])
@@ -248,6 +264,7 @@ class AtomicClients(unittest.TestCase):
         client.chunk_size = 4
         chunks = []
         def post(url, **kwargs):
+            self.transcription_signature(url, kwargs['headers'], kwargs['data'])
             if url.endswith('/upload'):
                 header = ('Content-Type: ' + kwargs['headers']['content-type'] + '\r\n\r\n').encode()
                 message = BytesParser(policy=policy.default).parsebytes(header + kwargs['data'])
@@ -280,14 +297,15 @@ class AtomicClients(unittest.TestCase):
         module = self.client('iflytek-voiceclone-tts', 'voiceclone')
         seen = []
         def http(request, **kwargs):
-            if request.full_url == module.AUTH_TOKEN_URL:
+            self.assertEqual(urlsplit(request.full_url).scheme, 'https')
+            if request.full_url == 'https://avatar-hci.xfyousheng.com/aiauth/v1/token':
                 self.assertEqual(json.loads(request.data)['base']['appid'], 'app')
                 return Response({'retcode': '000000', 'accesstoken': 'token'})
             seen.append(request)
             self.assertEqual(request.get_header('X-appid'), 'app')
             self.assertEqual(request.get_header('X-token'), 'token')
             return Response({'code': 0, 'flag': True, 'data': {'trainStatus': 1, 'assetId': 'resource'}})
-        with patch.object(module.urllib.request, 'urlopen', side_effect=http):
+        with patch.object(module.urllib.request.OpenerDirector, 'open', side_effect=http):
             for operation in ['getTrainingText', 'createTraining', 'submitTraining', 'getTraining']:
                 bridge.OPERATIONS[('iflytek-voiceclone-tts', operation)](self.request({'taskId': 901}))
             data, _ = bridge.voice_upload_sample(self.request({'taskId': 901, 'audioUrl': 'https://example.invalid/a.wav'}))
@@ -303,13 +321,61 @@ class AtomicClients(unittest.TestCase):
             self.assertTrue(bridge.voice_upload_sample(request)[0]['trainingSubmitted'])
             self.assertTrue(seen[-1].full_url.endswith('/task/submitWithAudio'))
             self.assertIn(b'RIFF-sample', seen[-1].data)
+            request['parameters']['taskId'] = 'abcdef0123456789abcdef01'
+            bridge.voice_upload_sample(request)
+            self.assertIn(b'name="taskId"\r\n\r\nabcdef0123456789abcdef01\r\n', seen[-1].data)
+        self.assertEqual(module.AUTH_TOKEN_URL, 'http://avatar-hci.xfyousheng.com/aiauth/v1/token')
+        self.assertEqual(module.TRAIN_BASE_URL, 'http://opentrain.xfyousheng.com/voice_train')
+
+    def test_voice_training_rejects_redirects_and_certificate_errors(self):
+        import ssl
+        import urllib.request
+        from io import BytesIO
+        from email.message import Message
+        compat = bridge.skill_compat
+        module = self.client('iflytek-voiceclone-tts', 'voiceclone')
+        # Exercise urllib's real redirect handler; no second request is allowed.
+        for code in [301, 302, 303, 307, 308]:
+            for destination in ['http://opentrain.xfyousheng.com/voice_train/task/add',
+                                'https://example.invalid/collect']:
+                headers = Message()
+                headers['Location'] = destination
+                opener = urllib.request.build_opener(compat._NoTrainingRedirect())
+                request = urllib.request.Request('https://avatar-hci.xfyousheng.com/aiauth/v1/token', data=b'{}')
+                with patch.object(opener, 'open', side_effect=AssertionError('Redirect followed')):
+                    with self.assertRaises((RuntimeError, urllib.error.HTTPError)):
+                        opener.error('http', request, BytesIO(), code, 'Redirect', headers)
+        with patch.object(module.urllib.request.OpenerDirector, 'open',
+                          side_effect=ssl.SSLCertVerificationError('Invalid certificate')) as send:
+            self.failed(lambda: bridge.voice_get_training_text(self.request()))
+            self.assertEqual(send.call_count, 1)
+
+    def test_voice_training_preserves_opaque_and_legacy_ids(self):
+        module = self.client('iflytek-voiceclone-tts', 'voiceclone')
+        task_id = 'abcdef0123456789abcdef01'
+        seen = []
+        def http(request, **kwargs):
+            if request.full_url.endswith('/token'):
+                return Response({'retcode': '000000', 'accesstoken': 'token'})
+            seen.append(json.loads(request.data)['taskId'])
+            return Response({'code': 0, 'flag': True, 'data': {}})
+        with patch.object(module.urllib.request.OpenerDirector, 'open', side_effect=http):
+            bridge.voice_upload_sample(self.request({'taskId': task_id, 'audioUrl': 'https://example.invalid/a.wav'}))
+            bridge.voice_submit_training(self.request({'taskId': task_id}))
+            bridge.voice_get_training(self.request({'taskId': task_id}))
+            bridge.voice_get_training(self.request({'taskId': 901}))
+        self.assertEqual(seen, [task_id, task_id, task_id, 901])
+        for invalid in ['', '../task', ' task', True, 0, -1, 1.5, 2 ** 53, 'x' * 257]:
+            with self.assertRaises(bridge.BridgeError) as caught:
+                bridge._training_task_id(self.request({'taskId': invalid}))
+            self.assertEqual(caught.exception.code, 'INVALID_INPUT')
 
     def test_voice_training_failed_business_response_is_not_success(self):
         module = self.client('iflytek-voiceclone-tts', 'voiceclone')
         def http(request, **kwargs):
-            return Response({'retcode': '000000', 'accesstoken': 'token'} if request.full_url == module.AUTH_TOKEN_URL
+            return Response({'retcode': '000000', 'accesstoken': 'token'} if request.full_url == 'https://avatar-hci.xfyousheng.com/aiauth/v1/token'
                             else {'code': 999, 'flag': False, 'data': None})
-        with patch.object(module.urllib.request, 'urlopen', side_effect=http):
+        with patch.object(module.urllib.request.OpenerDirector, 'open', side_effect=http):
             self.failed(lambda: bridge.voice_get_training_text(self.request()))
 
     def test_voice_synthesis_requires_final_audio_and_closes_transport(self):

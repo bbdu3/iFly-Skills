@@ -17,6 +17,7 @@ MAX_REQUEST_BYTES = 1024 * 1024
 # -I excludes the script directory; only fixed package code supplies adapters.
 sys.path.insert(0, str(BRIDGE_ROOT))
 import skill_compat
+from public_url import public_url
 
 
 class BridgeError(Exception):
@@ -283,8 +284,8 @@ def create_pdf_task(request):
     files = request['input'].get('files')
     if export_format not in ('word', 'markdown', 'json') or not isinstance(pdf_url, str):
         raise BridgeError('INVALID_INPUT')
-    if pdf_url and (len(pdf_url) > 2048 or not pdf_url.startswith(('http://', 'https://'))):
-        raise BridgeError('INVALID_INPUT')
+    if pdf_url:
+        _url_parameter({'pdfUrl': pdf_url}, 'pdfUrl')
     pdf_path = None
     if isinstance(files, dict) and files.get('pdf'):
         pdf_path = Path(_pdf_input_path(files['pdf']))
@@ -351,6 +352,8 @@ def _transcription_parameters(parameters):
         elif target in ('smoothproc', 'colloqproc') and type(value) is not bool:
             raise BridgeError('INVALID_INPUT')
         values[target] = value
+        if target == 'callback_url' and value:
+            _url_parameter({'callbackUrl': value}, 'callbackUrl')
     return values
 
 
@@ -436,10 +439,10 @@ def analyze_image(request):
 
 
 def _url_parameter(parameters, name):
-    value = parameters.get(name)
-    if not isinstance(value, str) or not value.startswith(('http://', 'https://')) or len(value) > 2048:
-        raise BridgeError('INVALID_INPUT')
-    return value
+    try:
+        return public_url(parameters.get(name))
+    except ValueError as error:
+        raise BridgeError('INVALID_INPUT') from error
 
 
 def _remote_task_id(request, name):
@@ -511,11 +514,15 @@ def video_confirm_transcript(request):
     return {'taskId': task_id, 'forceRerun': force_rerun, 'result': result}, []
 
 
-def _numeric_task_id(request):
+def _training_task_id(request):
     value = _parameters(request).get('taskId')
-    if type(value) is not int or value <= 0 or value > 2 ** 53 - 1:
-        raise BridgeError('INVALID_INPUT')
-    return value
+    # Existing workflows may contain numeric IDs. New service IDs are opaque strings.
+    if type(value) is int and 0 < value <= 2 ** 53 - 1:
+        return value
+    if (isinstance(value, str) and 0 < len(value) <= 256 and value.isascii()
+            and all(character.isalnum() or character in '-_' for character in value)):
+        return value
+    raise BridgeError('INVALID_INPUT')
 
 
 def _positive_int(parameters, name, fallback, maximum=2 ** 31 - 1):
@@ -526,7 +533,7 @@ def _positive_int(parameters, name, fallback, maximum=2 ** 31 - 1):
 
 
 def _voice_client(skill):
-    return skill.TrainClient(os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'])
+    return skill_compat.voice_training_client(skill, os.environ['IFLY_APP_ID'], os.environ['IFLY_API_KEY'])
 
 
 def _training_result(result):
@@ -563,9 +570,8 @@ def voice_create_training(request):
         raise BridgeError('INVALID_INPUT')
     if resource_name is not None and (not isinstance(resource_name, str) or len(resource_name) > 256):
         raise BridgeError('INVALID_INPUT')
-    if callback_url is not None and (not isinstance(callback_url, str) or len(callback_url) > 2048
-                                      or not callback_url.startswith(('http://', 'https://'))):
-        raise BridgeError('INVALID_INPUT')
+    if callback_url is not None:
+        _url_parameter({'callbackUrl': callback_url}, 'callbackUrl')
     try:
         result = _training_result(_voice_client(skill).create_task(
             name=name, sex=sex, engine=engine, language=language,
@@ -585,15 +591,15 @@ def _voice_audio_path(relative, audio_format):
 def voice_upload_sample(request):
     skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
     parameters = _parameters(request)
-    task_id = _numeric_task_id(request)
+    task_id = _training_task_id(request)
     text_id = _positive_int(parameters, 'textId', 5001)
     segment_id = _positive_int(parameters, 'segmentId', 1)
     audio_url = parameters.get('audioUrl', '')
     files = request['input'].get('files')
     if not isinstance(audio_url, str):
         raise BridgeError('INVALID_INPUT')
-    if audio_url and (not audio_url.startswith(('http://', 'https://')) or len(audio_url) > 2048):
-        raise BridgeError('INVALID_INPUT')
+    if audio_url:
+        _url_parameter({'audioUrl': audio_url}, 'audioUrl')
     has_file = isinstance(files, dict) and 'audio' in files
     if bool(audio_url) == has_file:
         raise BridgeError('INVALID_INPUT')
@@ -619,7 +625,7 @@ def voice_upload_sample(request):
 
 def voice_submit_training(request):
     skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
-    task_id = _numeric_task_id(request)
+    task_id = _training_task_id(request)
     try:
         result = _training_result(_voice_client(skill).submit_task(task_id))
     except Exception as error:
@@ -629,7 +635,7 @@ def voice_submit_training(request):
 
 def voice_get_training(request):
     skill = load_packaged_module('skills/iflytek-voiceclone-tts/scripts/voiceclone.py')
-    task_id = _numeric_task_id(request)
+    task_id = _training_task_id(request)
     try:
         result = _training_result(_voice_client(skill).get_task_status(task_id))
     except Exception as error:

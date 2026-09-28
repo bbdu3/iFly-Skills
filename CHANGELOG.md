@@ -1,5 +1,55 @@
 # Changelog
 
+## n8n CI compatibility fixes
+
+### Fixed
+
+- Signed speed-transcription JSON and multipart request bodies in the package adapter without relying on the upstream digest-prefix convention or modifying Skill sources.
+- Updated offline HTTP response doubles and verified transcription request digests and HMAC signatures against the actual transmitted bytes.
+- Waited for complete n8n node-type metadata during acceptance checks, with bounded retries for startup file generation, concise failure diagnostics, and regression coverage for partial responses and failure cases.
+- Added a browser-specific AppArmor user-namespace allowance on restricted Linux CI runners and a sandboxed Chromium startup check before rendering tests.
+
+## Voice training compatibility and secure transport
+
+### Changed
+
+- Routed voice-training authentication, JSON requests, and binary uploads through certificate-verified HTTPS in the package adapter, without modifying the original Skill files.
+- Accepted opaque string training task IDs for sample uploads, submission, and status queries, while preserving compatibility with existing safe integer IDs.
+- Rejected training redirects and retained fail-closed behavior for certificate errors without an HTTP fallback.
+- Updated voice-training documentation and regression coverage for task IDs, secure transport, unchanged upstream module state, and business-error handling.
+
+## Linux rendering and n8n load validation
+
+### Added
+
+- Added a real n8n production-webhook load harness for local voice listing and optional GIF rendering at concurrency levels 1, 2, and 4, including execution persistence, CPU/RSS sampling, binary decoding, and cleanup checks.
+- Added a Chromium seccomp profile and container setup guidance for sandboxed rendering with a non-root user and dropped container capabilities.
+
+### Changed
+
+- Enabled actual Linux browser and ffmpeg regression checks in the compatibility workflow.
+- Updated Linux runtime compatibility and contributor instructions for the additional validation tools.
+- Kept the n8n acceptance harness's Node.js compilation cache inside its disposable test directory.
+
+## Execution controls and operational acceptance
+
+### Added
+
+- Added bounded administrator settings for per-process concurrency, pending requests, and execution deadlines.
+- Added opt-in n8n execution metadata logging with request correlation, queue and total duration, controlled error codes, and binary byte counts.
+- Added an installed-package preflight command for runtime integrity, registered modules, pinned Python dependencies, and local execution.
+- Added invocation ownership markers and an offline recovery command that retains active, foreign, recent, or unrecognized directories.
+- Added local load and real n8n acceptance harnesses, regression coverage, compatibility CI, and operational guidance for recovery, duplicate-charge prevention, and package rollback.
+
+### Changed
+
+- Validated public file and callback URLs in the package adapter, rejecting private DNS destinations, URL credentials, unsupported ports, and ambiguous syntax.
+- Included n8n operational documentation and the business-ledger SQL example under the package's `docs/` directory, with updated documentation links and acceptance-script paths.
+- Expanded the npm description and keywords to describe the supported iFLYTEK Skills capabilities.
+- Reworked the shipped README and documentation for package users, including installation, credentials, compatibility, and troubleshooting; kept source build and test instructions in a repository-only contribution guide.
+- Set the package version to `0.1.0`, synchronized the lockfile, and removed the private-package flag.
+- Added npm author, homepage, issue tracker, and public registry metadata; made the CI tarball installation independent of the package version.
+
 ## PR #91 — n8n integration scaffold
 
 ### Added
