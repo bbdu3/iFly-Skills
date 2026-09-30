@@ -1,5 +1,45 @@
 # Changelog
 
+## n8n release controls
+
+### Changed
+
+- Removed the npm token reference from the publish job and documented OIDC trusted publishing, first-publish setup, and required environment reviewers.
+- Raised the node package's production dependency audit threshold to high while retaining the independent test host's critical threshold.
+- Extracted the current package version's changelog section into release notes, rejected missing, duplicate, or empty sections, and used those notes for GitHub releases.
+
+## Scoped n8n package
+
+### Changed
+
+- Set the npm package name to `@iflytekopensource/n8n-nodes-iflytek`, synchronized lockfile metadata, declared CommonJS output, and condensed capability keywords and the package description.
+- Updated installation paths, workflow node type identifiers, acceptance scripts, and release checks for the scoped package, including npm archive filenames and registry URLs.
+- Reorganized the Chinese README around installation and the 11 nodes, moved detailed operation guidance into the shipped node reference, and updated English usage and package migration instructions.
+- Distinguished the package's Node.js 24.x support policy from n8n version requirements, streamlined both READMEs, and moved detailed input/output and error behavior into the operations guide.
+- Linked license notices and the diagram template to tracked source files while documenting their installed paths, and clarified credential field descriptions for n8n users.
+- Documented organization publishing permissions and added checks for scoped package artifacts and workflow registration.
+
+### Fixed
+
+- Streamed release archives to tar for listing and extraction to avoid GNU tar interpreting Windows drive letters as remote hosts, with regression coverage for absolute output paths containing spaces.
+
+## n8n package distribution and maintenance
+
+### Added
+
+- Added inactive, unbound workflow exports for reviewed proofreading/translation, invoice recognition, and MP3 synthesis, with user instructions and offline expression checks in real n8n.
+- Added clean-source tarball preparation, runtime/archive integrity validation, registry metadata and checksum verification, and release regression coverage.
+- Added a version-tagged release workflow with compatibility checks, production dependency auditing, protected publishing, registry installation verification, and package verification reports for GitHub releases.
+- Added an isolated, locked n8n test host for compatibility and registry installation checks.
+- Added an English package README, package-level changelog, maintainer release instructions, an n8n issue form, and npm dependency update configuration.
+
+### Fixed
+
+- Reused the upstream transcription request-body signing implementation and verified that voice-training adaptation preserves the upstream module's endpoint constants.
+- Upgraded the locked test host to n8n 2.40.7 and fixed vulnerable XML, multipart, and archive dependency paths with scoped overrides.
+- Removed unused legacy dependency entries, including expr-eval, from the host lock and added installed-dependency and consumer regression checks.
+- Applied production dependency auditing to pull requests and reused the hardened host lock for current-version compatibility checks and registry installation verification.
+
 ## n8n CI compatibility fixes
 
 ### Fixed

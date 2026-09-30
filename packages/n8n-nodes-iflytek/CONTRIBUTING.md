@@ -2,6 +2,8 @@
 
 本文件面向修改本包源码的贡献者，保留在仓库中，不进入 npm 制品。安装包用户请从 [README](README.md) 开始。
 
+npm 制品、版本标签、发布权限及维护流程见 [发布维护指南](RELEASING.md)。
+
 ## 本地开发
 
 从完整的 iFly-Skills 仓库 checkout 工作；构建需要读取仓库内的原 Skill 文件。准备 Node.js 24、npm、Git 和 Python 3.10 或更高版本，在独立 venv 安装 full 依赖：
@@ -19,6 +21,8 @@ npm run typecheck
 `nodes/` 负责表单、item、凭证和 binary 映射；`shared/` 负责进程、协议、文件生命周期及 n8n 接口；`python/` 提供包内适配。优先在封装层解决兼容问题，避免为平台接入修改原 Skill 的行为。
 
 `npm run build` 编译 `dist/`，按 `skills.json` 和固定文件清单生成 `runtime/`。原 Skill 资源按字节复制；`runtime/manifest.json` 记录文件完整性和来源。请修改源文件后重建，不直接编辑生成目录。
+
+源码目录为 `packages/n8n-nodes-iflytek/`，npm 包名为 `@iflytekopensource/n8n-nodes-iflytek`。n8n 从 `package.json` 的 `n8n.nodes` 和 `n8n.credentials` 加载编译后的 CommonJS 文件；本包不提供通用 JavaScript 库入口。工作流节点类型使用完整包名，例如 `@iflytekopensource/n8n-nodes-iflytek.iflyTranslate`。
 
 ## 回归与打包
 
@@ -46,7 +50,7 @@ node scripts/n8n-acceptance.mjs \
   --n8n-root /test/host/node_modules/n8n --community-root /test/community \
   --python /test/venv/bin/python --report /test/compatibility.json
 
-node scripts/acceptance.mjs --package /test/community/node_modules/n8n-nodes-iflytek \
+node scripts/acceptance.mjs --package /test/community/node_modules/@iflytekopensource/n8n-nodes-iflytek \
   --python /test/venv/bin/python --samples 100 --report /test/load.json
 
 node scripts/n8n-load-acceptance.mjs \
