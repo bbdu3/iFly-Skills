@@ -1,5 +1,29 @@
 # Changelog
 
+## iFLYTEK Skills npm package identity
+
+### Changed
+
+- Renamed the npm package to `@iflytekopensource/n8n-nodes-iflytek-skills` and synchronized installation paths, workflow node types, release validation, and tests.
+- Changed package release tags to `iflytek-skills-n8n-vVERSION` and updated the documented deployment tag rule.
+- Set the README title to “iFLYTEK Skills for n8n” and documented migration from both previous development package names.
+
+## n8n test host dependency security
+
+### Fixed
+
+- Upgraded the isolated test host's vulnerable Git, shell-quoting, and JavaScript sandbox dependencies with version-specific overrides while retaining n8n 2.40.7 and the critical audit threshold.
+- Added installed-version and consumer-path regression checks, and documented the built-in Git integration restriction introduced by the secure Git library's environment guard.
+
+## n8n package documentation language
+
+### Changed
+
+- Made English the package's default README and retained the Chinese overview as `README.zh-CN.md`.
+- Translated the shipped installation, compatibility, node reference, operations, and workflow guides into English and updated their section links.
+- Updated the npm file list and release validation for the renamed Chinese README.
+- Added Linux and Windows installation quickstarts to the default README, including Python setup, preflight, service configuration, and restart instructions, and linked documentation through absolute repository URLs for npm readers.
+
 ## n8n release controls
 
 ### Changed
