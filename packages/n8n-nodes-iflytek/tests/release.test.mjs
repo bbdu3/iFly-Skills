@@ -5,8 +5,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { releaseNotes, releaseTag, validateFileList, verifyRuntime } from '../scripts/prepare-release.mjs';
-import { validatePublished } from '../scripts/verify-registry.mjs';
+import { releaseNotes, releaseTag, validateFileList, verifyReadmes, verifyRuntime } from '../scripts/prepare-release.mjs';
+import { inspectRegistryReadme, keywordSearch, validatePublished } from '../scripts/verify-registry.mjs';
 
 test('release channels reject ambiguous versions', () => {
   assert.equal(releaseTag('0.1.0'), 'latest');
@@ -36,9 +36,80 @@ test('packed releases require registered code, runtime files, user docs and temp
   const files = names.map(path => ({ path }));
   validateFileList(files, pkg, manifest);
   assert.throws(() => validateFileList(files.filter(file => file.path !== pkg.n8n.nodes[0]), pkg, manifest), /Missing packed file/);
+  for (const name of ['README.md', 'README.zh-CN.md']) {
+    assert.throws(() => validateFileList(files.filter(file => file.path !== name), pkg, manifest), /Missing packed file/);
+  }
   for (const name of ['runtime/../outside', 'runtime/.env', 'runtime/__pycache__/file.pyc', 'tests/fixture.json', 'node_modules/secret']) {
     assert.throws(() => validateFileList([...files, { path: name }], pkg, manifest));
   }
+});
+
+test('packed READMEs preserve the default and translated source content', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'ifly-readme-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = path.join(root, 'source');
+  const packed = path.join(root, 'packed');
+  await mkdir(source);
+  await mkdir(packed);
+  const contents = { 'README.md': '# English installation guide\r\n', 'README.zh-CN.md': '# 中文概述\r\n' };
+  for (const [name, content] of Object.entries(contents)) {
+    await writeFile(path.join(source, name), content);
+    await writeFile(path.join(packed, name), content);
+  }
+  await verifyReadmes(source, packed);
+  for (const [name, content] of Object.entries(contents)) {
+    await writeFile(path.join(packed, name), '# Replaced README\n');
+    await assert.rejects(verifyReadmes(source, packed), /Packed README differs from source/);
+    await rm(path.join(packed, name));
+    await assert.rejects(verifyReadmes(source, packed), { code: 'ENOENT' });
+    await writeFile(path.join(packed, name), content);
+  }
+  await writeFile(path.join(source, 'README.md'), ' \n');
+  await writeFile(path.join(packed, 'README.md'), ' \n');
+  await assert.rejects(verifyReadmes(source, packed), /Empty source README/);
+});
+
+test('keyword search fits registry limits and matches only the full package name', async () => {
+  const name = '@iflytekopensource/n8n-nodes-iflytek-skills';
+  const similar = ['n8n-nodes-iflytek-skills', '@another/n8n-nodes-iflytek-skills', name + '-extra'];
+  const fakeFetch = names => async (input, options) => {
+    const url = new URL(input);
+    assert.equal(url.origin, 'https://registry.npmjs.org');
+    assert.equal(url.pathname, '/-/v1/search');
+    const query = url.searchParams.get('text');
+    assert.ok(query.length >= 2 && query.length <= 64, 'npm search accepts 2–64 characters');
+    assert.ok(query.includes('keywords:n8n-community-node-package'));
+    assert.ok(query.includes('iflytek'));
+    assert.equal(url.searchParams.get('size'), '250');
+    assert.ok(options.signal instanceof AbortSignal);
+    return Response.json({ objects: names.map(name => ({ package: { name } })) });
+  };
+  assert.equal((await keywordSearch(name, fakeFetch(similar))).indexed, false);
+  assert.equal((await keywordSearch(name, fakeFetch([]))).indexed, false);
+  assert.equal((await keywordSearch(name, fakeFetch([...similar, name]))).indexed, true);
+});
+
+test('keyword search errors do not become pending indexing results', async () => {
+  const name = '@iflytekopensource/n8n-nodes-iflytek-skills';
+  for (const status of [400, 429, 503]) {
+    await assert.rejects(keywordSearch(name, async () => new Response('', { status })), new RegExp(`HTTP ${status}`));
+  }
+  await assert.rejects(keywordSearch(name, async () => { throw new Error('connection lost'); }), /connection lost/);
+  await assert.rejects(keywordSearch(name, async () => new Response('not JSON')), SyntaxError);
+  await assert.rejects(keywordSearch(name, async () => Response.json({})), /Invalid registry search response/);
+});
+
+test('registry README metadata is compared separately with the packed default', () => {
+  const readme = '# English installation guide\r\n';
+  const matching = inspectRegistryReadme({ readme: readme.replace(/\r\n/g, '\n'), readmeFilename: 'README.md' }, readme);
+  assert.equal(matching.filename, 'README.md');
+  assert.equal(matching.contentMatchesPackedDefault, true);
+  const translated = inspectRegistryReadme({ readme: '# 中文概述\n', readmeFilename: 'README.zh-CN.md' }, readme);
+  assert.equal(translated.filename, 'README.zh-CN.md');
+  assert.equal(translated.contentMatchesPackedDefault, false);
+  assert.match(translated.note, /not version-specific/);
+  assert.equal(inspectRegistryReadme({}, readme).contentMatchesPackedDefault, false);
+  assert.equal(inspectRegistryReadme({}, readme).filename, null);
 });
 
 test('release preparation verifies the scoped archive in an absolute path with spaces', async t => {
@@ -76,6 +147,9 @@ test('artifact checks detect changed runtime bytes and published tarballs', asyn
   validatePublished(metadata, release, bytes);
   assert.throws(() => validatePublished(metadata, release, Buffer.from('changed artifact')));
   assert.throws(() => validatePublished({ ...metadata, n8n: { nodes: [] } }, release, bytes));
+  assert.throws(() => validatePublished({ ...metadata, keywords: [] }, release, bytes));
+  assert.throws(() => validatePublished({ ...metadata, version: '0.0.0-stage' }, release, bytes));
+  assert.throws(() => validatePublished({ ...metadata, dist: { integrity: 'sha512-incorrect' } }, release, bytes));
 });
 
 test('workflow exports are inactive, unbound and connect only valid nodes', async () => {

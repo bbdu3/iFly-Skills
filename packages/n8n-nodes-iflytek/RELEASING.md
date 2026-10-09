@@ -53,7 +53,11 @@ Beta 发布将 `latest` 改为 `beta`。需要 CI provenance 时使用上述 Git
 
 ## 发现与失败恢复
 
-`npm run release:verify` 核对 registry 中的包和实际下载的 tarball，并记录 `keywords:n8n-community-node-package` 搜索结果。索引可能延迟；精确包名可安装和关键词搜索已收录是两个独立结果，后者未收录时应稍后复查。安装后通过节点选择器搜索 `iFlytek`。
+制品准备会检查压缩包内的 `README.md` 与 `README.zh-CN.md` 非空且与源码逐字节一致。
+
+`npm run release:verify` 核对 registry 中的包和实际下载的 tarball，并使用包含 `keywords:n8n-community-node-package` 的短查询，在前 250 条结果中匹配完整包名。报告记录查询和匹配结果；未匹配可能受索引延迟或排序影响，不代表无法通过精确包名安装。安装后通过节点选择器搜索 `iFlytek`。
+
+核验报告另记录 registry 的 `readmeFilename`，并比较其 README 内容与压缩包内的默认 `README.md`（忽略 CRLF/LF 差异）。这属于包级展示元数据，不对应某个固定版本；内容缺失或不一致时报告提示人工查看 npm 页面，不据此判定制品内容错误。网络或 registry 请求失败仍使核验失败。
 
 发布后验证失败时，先查询 registry 中的版本及 integrity。流水线仅允许复用 integrity 一致的已发布版本。GitHub release 创建失败时，在核对制品后补齐附件。若发现功能问题，发布修复版本并说明影响范围和升级方法；用户实例通过安装目标版本完成升级。
 

@@ -49,6 +49,15 @@ export async function verifyRuntime(root, manifest) {
   }
 }
 
+export async function verifyReadmes(sourceRoot, packedRoot) {
+  for (const name of ['README.md', 'README.zh-CN.md']) {
+    const source = await readFile(path.join(sourceRoot, name));
+    const packed = await readFile(path.join(packedRoot, name));
+    assert.ok(source.toString('utf8').trim(), `Empty source README: ${name}`);
+    assert.ok(source.equals(packed), `Packed README differs from source: ${name}`);
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   assert.ok(args.length >= 2 && args[0] === '--output' && args[1]
@@ -99,6 +108,7 @@ async function main() {
     assert.deepEqual(await json(path.join(installed, 'package.json')), pkg);
     assert.deepEqual(await json(path.join(installed, 'runtime/manifest.json')), manifest);
     await verifyRuntime(installed, manifest);
+    await verifyReadmes(pkgRoot, installed);
   } finally {
     await rm(extracted, { recursive: true, force: true });
   }
