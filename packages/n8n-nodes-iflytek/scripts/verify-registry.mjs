@@ -14,11 +14,19 @@ async function get(url, fetchImpl = fetch) {
 }
 
 export async function keywordSearch(packageName, fetchImpl = fetch) {
-  // npm limits search text to 64 characters; the full scoped name exceeds it.
-  const query = 'keywords:n8n-community-node-package iflytek-skills';
+  // A keyword qualifier can ignore extra free text. Narrow by brand, then check the community marker.
+  const query = 'keywords:iflytek';
   const search = await (await get(registry + '-/v1/search?' + new URLSearchParams({ text: query, size: '250' }), fetchImpl)).json();
-  assert.ok(Array.isArray(search.objects), 'Invalid registry search response');
-  return { query, indexed: search.objects.some(item => item.package.name === packageName) };
+  assert.ok(search && Array.isArray(search.objects)
+    && search.objects.every(item => typeof item?.package?.name === 'string' && item.package.name.length > 0),
+  'Invalid registry search response');
+  assert.ok(Number.isInteger(search.total) && search.total >= search.objects.length, 'Invalid registry search total');
+  const matched = search.objects.find(item => item?.package?.name === packageName)?.package;
+  if (matched) {
+    assert.ok(Array.isArray(matched.keywords) && matched.keywords.includes('n8n-community-node-package'),
+      'Matched search package is missing the n8n-community-node-package keyword');
+  }
+  return { query, indexed: Boolean(matched), total: search.total, returned: search.objects.length };
 }
 
 export function inspectRegistryReadme(metadata, packedReadme) {
@@ -54,14 +62,16 @@ async function main() {
   validatePublished(metadata, release, bytes);
   const tags = await (await get(registry + '-/package/' + packagePath + '/dist-tags')).json();
   assert.equal(tags[release.distTag], release.version, 'Unexpected dist-tag');
-  const { query, indexed } = await keywordSearch(release.package);
+  const { query, indexed, total, returned } = await keywordSearch(release.package);
   const packedReadme = execFileSync('tar', ['-xOzf', '-', 'package/README.md'], { input: bytes, encoding: 'utf8' });
   assert.ok(packedReadme.trim(), 'Empty packed README.md');
   const packument = await (await get(registry + packagePath)).json();
   assert.equal(packument.name, release.package);
   const report = { package: release.package, version: release.version, integrityMatches: true,
     distTag: release.distTag, keywordSearchQuery: query, keywordSearchIndexed: indexed,
-    searchNote: indexed ? 'Exact package found in keyword search.' : 'Exact package not found in the first 250 keyword search results; indexing or ranking may differ. Repeat later. Exact-name installation remains available.',
+    keywordSearchTotal: total, keywordSearchReturned: returned,
+    searchNote: indexed ? 'Exact package found in brand keyword search with the n8n community keyword.'
+      : `Exact package not found in ${returned} of ${total} brand keyword search results. This does not prove the package is unindexed; indexing or ranking may differ. Exact-name installation remains available.`,
     registryReadme: inspectRegistryReadme(packument, packedReadme) };
   await writeFile(path.join(path.dirname(path.resolve(filename)), 'registry-verification.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));

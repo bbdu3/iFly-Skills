@@ -54,7 +54,7 @@ npm 包 [@iflytekopensource/n8n-nodes-iflytek-skills](https://www.npmjs.com/pack
 
 在 **Settings → Community Nodes → Install** 中输入 `@iflytekopensource/n8n-nodes-iflytek-skills`。实例需允许安装未经 n8n 验证的社区节点。按照[包安装指南](packages/n8n-nodes-iflytek/README.md#installation)准备 Python 环境，重启 n8n 后，在节点选择器中搜索 `iFlytek`。
 
-该包要求 Node.js 24.x、Python 3.10 或更新版本，以及启动本地子进程的权限，不支持 n8n Cloud。远程操作使用 **iFlytek API** 凭证，各项服务需分别开通权限并具有可用额度。环境要求、最小工作流及反馈入口见[包 README](packages/n8n-nodes-iflytek/README.md)，另有[中文概述](packages/n8n-nodes-iflytek/README.zh-CN.md)。
+该包要求 Node.js 24.x、Python 3.10 或更新版本，以及启动本地子进程的权限，不支持 n8n Cloud。远程操作使用 **iFlytek API** 凭证，各项服务需分别开通权限并具有可用额度。环境要求、最小工作流及反馈入口见[包 README](packages/n8n-nodes-iflytek/README.md)，另有[中文概述](packages/n8n-nodes-iflytek/docs/README.zh-CN.md)。
 
 ### 单独使用 Skill
 
