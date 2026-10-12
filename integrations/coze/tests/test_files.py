@@ -8,6 +8,56 @@ from urllib.error import HTTPError
 
 import pytest
 
+
+def test_connected_address_is_checked_and_pinned_with_original_tls_host(monkeypatch):
+    import app.files as files
+    events = []
+    class Socket:
+        def settimeout(self, value): pass
+        def connect(self, address): events.append(("connect", address))
+        def close(self): pass
+    class Context:
+        def wrap_socket(self, sock, server_hostname):
+            events.append(("sni", server_hostname))
+            return sock
+    monkeypatch.setattr(files.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("93.184.216.34", 443))])
+    monkeypatch.setattr(files.socket, "socket", lambda *a: Socket())
+    connection = files._PinnedHTTPSConnection("public.example.test", timeout=1)
+    connection._context = Context()
+    connection.connect()
+    assert events == [("connect", ("93.184.216.34", 443)), ("sni", "public.example.test")]
+    events.clear()
+    monkeypatch.setattr(files.socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("127.0.0.1", 443))])
+    with pytest.raises(files.FileAccessError):
+        connection.connect()
+    assert events == []
+
+
+def test_artifact_capacity_does_not_leave_partial_files(tmp_path):
+    from app.files import ArtifactStore, FileAccessError
+    store = ArtifactStore(tmp_path, "https://files.example.test", max_storage_bytes=4)
+    store.put_bytes(b"1234", "text/plain")
+    with pytest.raises(FileAccessError, match="storage limit"):
+        store.put_bytes(b"5", "text/plain")
+    assert len(list(store.data_root.iterdir())) == 1
+
+
+def test_cleanup_retries_files_still_open_on_windows(tmp_path, monkeypatch):
+    from pathlib import Path
+    from app.files import ArtifactStore
+    store = ArtifactStore(tmp_path, "https://files.example.test")
+    artifact = store.put_bytes(b"data", "text/plain")
+    original = Path.unlink
+    def busy(path, **kwargs):
+        if path.name == artifact.artifact_id:
+            raise PermissionError("open stream")
+        return original(path, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", busy)
+        assert store.cleanup(now=10**12) == 0
+        assert store.resolve(artifact.artifact_id, now=10**12) is None
+    assert store.cleanup(now=10**12) == 1
+
 from app.files import ArtifactStore, FileAccessError, FileDownloader, FilePolicy
 
 
