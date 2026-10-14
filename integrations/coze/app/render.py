@@ -128,4 +128,3 @@ def render(payload):
         subprocess.run([docker, "rm", "-f", name], env=env, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-

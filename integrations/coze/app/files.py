@@ -320,15 +320,16 @@ class ArtifactStore:
         artifact_id = secrets.token_urlsafe(24)
         destination = self.data_root / artifact_id
         temporary = self.data_root / ("." + artifact_id + ".tmp")
-        now = time.time()
-        expires = now + ttl
         try:
+            # Stage large files without holding SQLite's writer lock.
+            shutil.copyfile(source, temporary)
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 stored = connection.execute("SELECT COALESCE(SUM(size_bytes), 0) FROM artifacts").fetchone()[0]
                 if stored + size > self.max_storage_bytes:
                     raise FileAccessError("The artifact storage limit has been reached.")
-                shutil.copyfile(source, temporary)
+                now = time.time()
+                expires = now + ttl
                 os.replace(temporary, destination)
                 connection.execute("INSERT INTO artifacts VALUES (?, ?, ?, ?, ?, ?)",
                                    (artifact_id, destination.name, mime_type, size, expires, now))
