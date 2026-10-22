@@ -9,7 +9,7 @@
 
 ## 准备服务器和账号
 
-准备一台可访问公网的 Linux 服务器，至少有 2 GiB 可用内存，并为镜像、任务和输出文件预留磁盘空间。安装 Git、Docker Engine、Docker Compose v2 和 Docker Buildx；运行 Docker 命令的账号需要相应权限。
+准备一台可访问公网的 Linux 服务器，建议至少 4 GiB 内存，并为镜像、任务和输出文件预留磁盘空间。后端容器限额为 2 GiB，临时文件最多占其中 1 GiB；系统、代理及可选 GIF 渲染还需要内存。安装 Git、Docker Engine、Docker Compose v2 和 Docker Buildx；运行 Docker 命令的账号需要相应权限。
 
 将仓库放到服务器，进入仓库根目录并检查 Docker 安装：
 
@@ -136,7 +136,9 @@ uv run --locked --project integrations/coze --python 3.13 python -B integrations
 
 配置另存时添加 `--env-file <配置文件路径>`。结果中的 `passed` 应为 `true`。检查会验证 HTTPS、密钥和已启用工具的路由，并读取内置发音人列表，不消耗讯飞额度。检查直接连接服务，不使用本机代理。
 
-检查通过后，按[插件接入与发布说明](../PUBLISHING.md)导出插件文件，在 Coze 中导入并使用真实样本调试。
+检查通过说明服务地址、认证和路由可用，不代表讯飞权限／额度或 GIF 环境已验证。按[插件接入与发布说明](../PUBLISHING.md)导出插件文件，在 Coze 中导入并使用真实样本调试。
+
+示例代理等待后端响应的上限为 660 秒，覆盖媒体操作的 600 秒预算。Coze 节点和额外网关仍有各自超时，需要按实际调用耗时配置。普通调用的后端预算仍为 60 秒。
 
 ## 运行与更新
 
@@ -184,7 +186,7 @@ handle_path /coze/* {
     reverse_proxy backend:8000 {
         transport http {
             dial_timeout 5s
-            response_header_timeout 75s
+            response_header_timeout 660s
         }
     }
 }
@@ -283,7 +285,7 @@ https://coze.example.com {
     }
     reverse_proxy 127.0.0.1:8000 {
         transport http {
-            response_header_timeout 75s
+            response_header_timeout 660s
         }
     }
 }

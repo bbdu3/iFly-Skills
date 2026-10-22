@@ -43,7 +43,7 @@ uv run --locked --project integrations/coze --python 3.13 python -B integrations
 | 图片／PDF OCR | `recognize_image`；PDF 用 `create_pdf_task → get_pdf_task` | 实际识别内容及产物；检查部分失败状态 |
 | 极速转写 | `create_task → get_task` | 文本及分段与音频一致 |
 | 图片理解 | `analyze`：图片 URL 和问题 | 回答完整且与图片相符 |
-| 视频翻译 | `create_task → get_task`；待字幕确认阶段审核后 `confirm_transcript → get_task` | 状态、字幕确认和最终视频可下载；额度不足不计通过 |
+| 视频翻译 | `create_task → get_task`；待字幕确认阶段选择接受上游字幕后 `confirm_transcript → get_task` | 待确认时不提供字幕预览或编辑；核对状态、确认行为及最终视频 |
 | 声音复刻 | `get_training_text → create_training → upload_sample → submit_training → get_training → synthesize` | 按返回文本录音；训练成功后使用本站任务的 `res_id`，下载并试听 |
 | 合同审核 | `review → get_review` | 必要阶段执行，JSON／Markdown 报告可读，保留人工复核 |
 | GIF | `render_html_to_gif → get_render` | GIF 尺寸／动画正确，脚本和外部资源输入被拒绝 |
@@ -61,6 +61,8 @@ uv run --locked --project integrations/coze --python 3.13 python -B integrations
 ```
 
 保存返回的 `job_id`，在 `get_task` 的 Query 中填写该值，至少间隔 5 秒查询。HTTP 200 只表示任务快照；`succeeded` 才表示完成。`failed` 查看 `error_code`，`submission_unknown` 核实上游受理状态后再处理，不自动重提。
+
+按[调用预算说明](./README.md#安装与启动)设置工作流节点超时。媒体上传／结果转存可能超过默认超时；国内工作流插件节点可按实际耗时设置到 600 秒，其他调用场景和国际站分别确认。入口代理的等待时间不能延长平台自身的超时，宜先用小样本验证。
 
 同一操作重试须复用原 `request_id` 和完全相同的参数；新业务请求使用新标识。在工作流中只创建一次，随后用有限次数的查询／等待分支轮询，设置总时限和失败出口。声音训练及视频字幕确认是独立阶段，不能跳过前置状态。视频只有 `upstream_status` 为 `waiting_transcript_confirmation` 或 `waiting_manual_intervention_segment` 才可确认字幕；如为 `waiting_manual_intervention_refine`，须在服务商支持的审核入口处理，再继续查询。
 

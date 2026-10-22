@@ -3,7 +3,6 @@
 from typing import Annotated
 
 from fastapi import Request, Query
-from typing import Annotated
 
 from . import models as m
 from .catalog import Tool

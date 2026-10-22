@@ -35,7 +35,7 @@ services:
         bind:
           create_host_path: false
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=256m
+      - /tmp:rw,noexec,nosuid,size=1g
     healthcheck:
       test: [CMD, /app/integrations/coze/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).close()"]
       interval: 30s

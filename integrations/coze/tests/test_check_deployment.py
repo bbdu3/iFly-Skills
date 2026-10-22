@@ -1,6 +1,7 @@
 """The deployment probe must not spend quota, follow redirects or expose secrets."""
 
 from io import BytesIO
+from http.client import BadStatusLine, IncompleteRead
 import json
 import urllib.request
 import urllib.response
@@ -87,10 +88,15 @@ def test_redirects_cannot_forward_service_credentials():
     assert status == 302
 
 
-def test_probe_failures_are_actionable_without_echoing_responses_or_keys():
+@pytest.mark.parametrize("failure", [
+    OSError("private-key / private-workspace / private-response"),
+    BadStatusLine("private-response"),
+    IncompleteRead(b"private-response"),
+])
+def test_probe_failures_are_actionable_without_echoing_responses_or_keys(failure):
     class FailingOpener:
         def open(self, request, timeout):
-            raise OSError("private-key / private-workspace / private-response")
+            raise failure
 
     result = check(configuration(), "cn", opener=FailingOpener())
     assert not result["passed"]

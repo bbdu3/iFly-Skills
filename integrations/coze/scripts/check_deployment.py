@@ -1,6 +1,7 @@
 """Check one deployed HTTPS backend without creating tasks or paid upstream calls."""
 
 import argparse
+from http.client import HTTPException
 import json
 from pathlib import Path
 import ssl
@@ -62,7 +63,7 @@ def check(values, site, *, check_voices=False, all_tools=False, opener=None):
         try:
             status, payload = request_json(opener, url, **kwargs)
             checks[name] = {"passed": status == expected_status and predicate(payload), "http_status": status}
-        except (OSError, ValueError, TypeError, KeyError):
+        except (OSError, HTTPException, ValueError, TypeError, KeyError):
             checks[name] = {"passed": False, "reason": "transport_or_response_error"}
 
     def error_is(code):
